@@ -1,0 +1,7 @@
+name: future-unknown
+input: "Điểm chuẩn ngành AI năm 2028 là bao nhiêu?"
+expect:
+  handover: true
+  forbidden_phrases:
+    - "chắc chắn"
+    - "100%"
