@@ -15,6 +15,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9", "ruff>=0.6,<1"]
+eval = [
+  "pytest-agentharness[langgraph]==0.1.0a2",
+  "PyYAML>=6,<7",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["../..", "."]
