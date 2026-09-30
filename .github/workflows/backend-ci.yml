@@ -12,5 +12,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e "apps/api[dev]"
-      - run: pytest apps/api/tests evals/harness/tests
+      - run: pip install -e "apps/api[dev,eval]"
+      - run: pytest apps/api/tests evals/harness/tests -q
