@@ -28,3 +28,9 @@ data/processed/*
 .idea/
 .DS_Store
 Thumbs.db
+
+# impeccable engine binary & local config
+**/scripts/bin/
+.impeccable/config.local.json
+
+

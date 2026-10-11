@@ -12,3 +12,7 @@ lint-api:
 
 test-evals:
 	pytest evals/harness/tests
+
+design-audit:
+	npx impeccable detect apps/web
+
