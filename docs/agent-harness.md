@@ -16,7 +16,7 @@ The Python import is `agentharness`.
 
 ## Current scaffold behavior
 
-The production scaffold still executes a deterministic sequence of admission nodes rather than a compiled LangGraph `StateGraph`. The adapter in `evals/harness/adapters/langgraph_runner.py` therefore records every current node as an Agent-Harness TOOL span.
+The production scaffold still executes a deterministic sequence of admission nodes rather than a compiled LangGraph `StateGraph`. The adapter in `evals/harness/adapters/langgraph_runner.py` imports pipeline nodes from `app.ai.graph` and records every current node as an Agent-Harness TOOL span.
 
 This already enables real Agent-Harness assertions such as:
 

@@ -1,5 +1,6 @@
 from typing import TypedDict
 
+
 class AdmissionState(TypedDict, total=False):
     message: str
     candidate_id: str | None

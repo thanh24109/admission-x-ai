@@ -1,10 +1,12 @@
-from ai.graph.state import AdmissionState
+from app.ai.graph.state import AdmissionState
+
 
 def input_guard(state: AdmissionState) -> AdmissionState:
     message = state.get("message", "").strip()
     if not message:
         return {**state, "handover": False, "answer": "Vui lòng nhập câu hỏi tuyển sinh."}
     return state
+
 
 def intent_classifier(state: AdmissionState) -> AdmissionState:
     text = state.get("message", "").lower()
@@ -15,9 +17,11 @@ def intent_classifier(state: AdmissionState) -> AdmissionState:
         intent = "scholarship"
     return {**state, "intent": intent}
 
+
 def retrieve(state: AdmissionState) -> AdmissionState:
     # Production: hybrid retrieval from Supabase pgvector + FTS, followed by reranking.
     return {**state, "context": []}
+
 
 def generate(state: AdmissionState) -> AdmissionState:
     if not state.get("context"):
@@ -28,9 +32,11 @@ def generate(state: AdmissionState) -> AdmissionState:
         return {**state, "draft_answer": answer, "confidence": 0.2}
     return {**state, "draft_answer": "", "confidence": 0.8}
 
+
 def grounding_check(state: AdmissionState) -> AdmissionState:
     grounded = bool(state.get("context"))
     return {**state, "grounded": grounded}
+
 
 def confidence_gate(state: AdmissionState) -> AdmissionState:
     handover = (not state.get("grounded", False)) or state.get("confidence", 0.0) < 0.65

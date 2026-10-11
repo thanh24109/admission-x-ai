@@ -7,8 +7,7 @@ from typing import Any
 import yaml
 from agentharness.core.result import RunResult
 from agentharness.core.trace import Span, Trace, new_span_id, utc_now_unix_nano
-
-from ai.graph.nodes import (
+from app.ai.graph.nodes import (
     confidence_gate,
     generate,
     grounding_check,
@@ -16,7 +15,7 @@ from ai.graph.nodes import (
     intent_classifier,
     retrieve,
 )
-from ai.graph.state import AdmissionState
+from app.ai.graph.state import AdmissionState
 
 Node = Callable[[AdmissionState], AdmissionState]
 
