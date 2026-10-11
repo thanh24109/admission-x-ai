@@ -131,32 +131,43 @@ docker compose up --build
 
 ---
 
-### 2. Khởi chạy môi trường phát triển (Local Development)
+### 2. Khởi chạy môi trường phát triển (Local Development từ thư mục gốc — không cần cd)
 
-#### Backend (FastAPI)
+#### Bước 1: Cài đặt môi trường một lần duy nhất
 ```bash
-cd apps/api
-pip install -e ".[dev,eval]"
-uvicorn app.main:app --reload --port 8000
+# Cài đặt toàn bộ dependencies cho cả Backend (uv) và Frontend (npm)
+npm run setup
+
+# Hoặc chạy thủ công:
+uv sync
+npm --prefix apps/web install
 ```
 
-#### Frontend (Next.js)
+#### Bước 2: Khởi chạy dịch vụ ngay từ terminal gốc
 ```bash
-cd apps/web
-npm install
+# Chạy đồng thời cả Backend (port 8000) và Frontend (port 3000)
 npm run dev
+
+# Hoặc chạy riêng từng dịch vụ:
+npm run dev:api   # hoặc: uv run uvicorn app.main:app --reload --port 8000
+npm run dev:web   # hoặc: npm --prefix apps/web run dev
 ```
 
-#### Kiểm thử & Đánh giá (Evals & Test Harness)
+#### Bước 3: Kiểm thử & Đánh giá (Evals & Test Harness)
 ```bash
-# Chạy kiểm thử API
-make test-api
+# Chạy toàn bộ kiểm thử (API + Agent-Harness evals)
+npm run test      # hoặc: uv run pytest apps/api/tests evals/harness/tests -q
 
-# Chạy bộ test Agent-Harness đo lường luồng AI
-make test-evals
+# Chạy riêng kiểm thử API
+npm run test:api  # hoặc: uv run pytest apps/api/tests -q
 
-# Kiểm tra linting
-make lint-api
+# Chạy riêng bộ kiểm thử Agent-Harness
+npm run test:evals # hoặc: uv run pytest evals/harness/tests -q
+
+# Kiểm tra linting và định dạng code
+npm run lint:api  # hoặc: uv run ruff check apps/api evals workers scripts
+npm run format:api # hoặc: uv run ruff format apps/api evals workers scripts
+npm run lint:web  # hoặc: npm --prefix apps/web run lint
 ```
 
 ---

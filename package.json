@@ -1,0 +1,25 @@
+{
+  "name": "admission-x-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Admission X AI Monorepo",
+  "scripts": {
+    "dev": "concurrently -n \"api,web\" -c \"blue,green\" \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "uv run uvicorn app.main:app --reload --port 8000",
+    "dev:web": "npm --prefix apps/web run dev",
+    "build:web": "npm --prefix apps/web run build",
+    "start:web": "npm --prefix apps/web start",
+    "lint:web": "npm --prefix apps/web run lint",
+    "test:api": "uv run pytest apps/api/tests -q",
+    "test:evals": "uv run pytest evals/harness/tests -q",
+    "test": "uv run pytest apps/api/tests evals/harness/tests -q",
+    "lint:api": "uv run ruff check apps/api evals workers scripts",
+    "format:api": "uv run ruff format apps/api evals workers scripts",
+    "setup:api": "uv sync",
+    "setup:web": "npm --prefix apps/web install",
+    "setup": "uv sync && npm --prefix apps/web install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

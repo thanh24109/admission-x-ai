@@ -1,0 +1,14 @@
+[project]
+name = "admission-x-ai"
+version = "0.1.0"
+description = "Admission X AI Monorepo root"
+requires-python = ">=3.11"
+dependencies = [
+    "admission-x-api[dev,eval]",
+]
+
+[tool.uv.workspace]
+members = ["apps/api"]
+
+[tool.uv.sources]
+admission-x-api = { workspace = true }
