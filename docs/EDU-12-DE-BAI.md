@@ -51,6 +51,6 @@ Xây dựng chatbot tuyển sinh tư vấn ứng viên 24/7, hướng dẫn quy 
 - **Truy xuất nguồn:** lưu bằng chứng và phiên bản tài liệu để tái kiểm chứng câu trả lời.
 
 ## 8. Liên hệ với repository
-Repository hiện có các thành phần liên quan: `apps/web`, `apps/api`, `ai`, `evals`, `workers`, `supabase`, `infra`. Xem thêm [README](../README.md) và [PRODUCT](../PRODUCT.md).
+Repository hiện có các thành phần liên quan: `apps/web`, `apps/api` (bao gồm module `app/ai`), `evals`, `workers`, `supabase`, `infra`. Xem thêm [README](../README.md) và [PRODUCT](../PRODUCT.md).
 
 > Tài liệu này mô tả **đề bài và tiêu chí mong muốn**; các ô kiểm không xác nhận rằng chức năng đã được hiện thực.

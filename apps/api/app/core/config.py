@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
@@ -10,5 +11,6 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [x.strip() for x in self.api_cors_origins.split(",") if x.strip()]
+
 
 settings = Settings()

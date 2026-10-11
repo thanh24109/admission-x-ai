@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from apps.api.app.api.routes import chat, conversations, handovers, metrics
-from apps.api.app.core.config import settings
+from app.api.routes import chat, conversations, handovers, metrics
+from app.core.config import settings
 
 app = FastAPI(title="Admission X AI API", version="0.1.0")
 app.add_middleware(
@@ -13,9 +13,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
 
 app.include_router(chat.router, prefix="/api/v1", tags=["chat"])
 app.include_router(conversations.router, prefix="/api/v1", tags=["conversations"])

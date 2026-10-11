@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
-from apps.api.app.main import app
+
+from app.main import app
 
 client = TestClient(app)
+
 
 def test_chat_returns_safe_stub() -> None:
     response = client.post("/api/v1/chat", json={"message": "Học phí ngành CNTT là bao nhiêu?"})
