@@ -87,6 +87,12 @@ export default function Header() {
                   {link.name}
                 </a>
               ))}
+              <Link
+                href="/login"
+                className="text-amber-300 font-semibold text-xs hover:text-white transition-colors"
+              >
+                Cổng tuyển sinh
+              </Link>
             </div>
 
             <Separator orientation="vertical" className="hidden md:block h-3.5 bg-white/20 dark:bg-slate-700" />
