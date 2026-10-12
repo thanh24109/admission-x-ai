@@ -6,27 +6,29 @@ import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { ADMISSION_DATA } from "@/data/admissions";
 
 export default function AdmissionSection() {
   return (
-    <section className="epu-admission-section bg-slate-50/80 py-20 border-t border-slate-200/50">
-      <div className="epu-container">
-        <div className="epu-admission-grid">
+    <section className="bg-slate-50/80 py-16 md:py-24 border-t border-slate-200/50">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
           {/* Left Column: Image with floating animated card */}
-          <div className="epu-admission-img-wrapper relative">
+          <div className="relative flex justify-center">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               whileInView={{ opacity: 1, scale: 1 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5 }}
+              className="relative w-full max-w-[460px] aspect-[4/5] rounded-3xl overflow-hidden shadow-2xl"
             >
               <Image
                 src={ADMISSION_DATA.image}
                 alt="Sinh viên Trường Đại học Điện lực"
-                width={480}
-                height={580}
-                className="epu-admission-img rounded-3xl shadow-xl"
+                fill
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="object-cover"
               />
             </motion.div>
 
@@ -35,42 +37,44 @@ export default function AdmissionSection() {
               initial={{ y: 15, opacity: 0 }}
               whileInView={{ y: 0, opacity: 1 }}
               viewport={{ once: true }}
-              animate={{ y: [0, -6, 0] }}
+              animate={{ y: [0, -8, 0] }}
               transition={{
                 y: { repeat: Infinity, duration: 4, ease: "easeInOut" },
                 opacity: { duration: 0.6 },
               }}
-              className="epu-admission-float-card bg-white p-6 rounded-2xl shadow-2xl border border-slate-100"
+              className="absolute -bottom-6 -right-2 sm:right-4 z-20"
             >
-              <Badge variant="secondary" className="text-[10px] font-extrabold uppercase tracking-wider mb-1">
-                {ADMISSION_DATA.yearTag}
-              </Badge>
-              <div className="epu-admission-year text-4xl font-extrabold text-school-navy leading-none my-1">
-                {ADMISSION_DATA.year}
-              </div>
-              <div className="epu-admission-summary text-xs text-slate-500 leading-relaxed">
-                {ADMISSION_DATA.tagline}
-              </div>
+              <Card className="bg-white/95 backdrop-blur-md p-6 rounded-2xl shadow-2xl border border-slate-100 max-w-[240px]">
+                <Badge variant="secondary" className="text-[10px] font-extrabold uppercase tracking-wider mb-1">
+                  {ADMISSION_DATA.yearTag}
+                </Badge>
+                <div className="text-3xl sm:text-4xl font-extrabold text-school-navy leading-none my-1.5">
+                  {ADMISSION_DATA.year}
+                </div>
+                <div className="text-xs text-slate-500 leading-relaxed font-medium">
+                  {ADMISSION_DATA.tagline}
+                </div>
+              </Card>
             </motion.div>
           </div>
 
           {/* Right Column: Admission info & Levels */}
-          <div className="space-y-6">
+          <div className="space-y-6 lg:pl-6">
             <div>
-              <div className="epu-admission-subheading text-xs font-bold text-epu-orange tracking-widest uppercase mb-2">
+              <div className="text-xs font-bold text-epu-orange tracking-widest uppercase mb-2">
                 {ADMISSION_DATA.subTitle}
               </div>
-              <h2 className="epu-admission-main-title text-3xl md:text-5xl font-serif font-bold text-school-navy leading-tight">
+              <h2 className="text-3xl md:text-5xl font-serif font-bold text-school-navy leading-tight">
                 {ADMISSION_DATA.title} <span className="text-epu-orange">{ADMISSION_DATA.highlight}</span>
               </h2>
             </div>
 
-            <p className="epu-admission-desc text-slate-600 text-base leading-relaxed">
+            <p className="text-slate-600 text-base md:text-lg leading-relaxed">
               {ADMISSION_DATA.description}
             </p>
 
             {/* Program Levels */}
-            <div className="epu-admission-highlights space-y-3">
+            <div className="space-y-3 pt-2">
               {ADMISSION_DATA.levels.map((level, idx) => (
                 <motion.div
                   key={level.title}
@@ -78,15 +82,15 @@ export default function AdmissionSection() {
                   whileInView={{ opacity: 1, x: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: idx * 0.08 }}
-                  className="epu-highlight-item flex items-center gap-3 p-3 rounded-xl bg-white/70 border border-slate-200/60 shadow-xs"
+                  className="flex items-center gap-3.5 p-3.5 rounded-xl bg-white border border-slate-200/70 shadow-xs hover:border-epu-orange/40 hover:shadow-sm transition-all"
                 >
                   <CheckCircle2 className="h-5 w-5 text-epu-orange shrink-0" />
                   <div>
-                    <div className="font-semibold text-slate-900 text-sm">
+                    <div className="font-bold text-slate-900 text-sm">
                       {level.title}
                     </div>
                     {level.desc && (
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-slate-500 mt-0.5">
                         {level.desc}
                       </div>
                     )}
@@ -96,20 +100,19 @@ export default function AdmissionSection() {
             </div>
 
             {/* CTA button with Shadcn Button */}
-            <div className="pt-2">
+            <div className="pt-4">
               <Button
                 size="lg"
                 asChild
-                className="rounded-full bg-school-navy hover:bg-epu-orange text-white font-bold px-8 shadow-lg hover:shadow-orange-500/25 transition-all"
+                className="rounded-full bg-school-navy hover:bg-epu-orange text-white font-bold px-8 h-12 shadow-lg hover:shadow-orange-500/25 transition-all text-sm gap-2"
               >
                 <a
                   href={ADMISSION_DATA.portalHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2"
                 >
                   <span>{ADMISSION_DATA.portalLabel}</span>
-                  <ArrowRight size={18} />
+                  <ArrowRight className="h-4 w-4" />
                 </a>
               </Button>
             </div>

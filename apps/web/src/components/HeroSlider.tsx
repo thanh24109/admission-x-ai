@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 const HERO_SLIDES = [
   {
@@ -40,44 +42,58 @@ export default function HeroSlider() {
   };
 
   return (
-    <div className="epu-hero">
+    <div className="relative w-full h-[360px] sm:h-[460px] md:h-[540px] lg:h-[620px] overflow-hidden bg-slate-950 select-none">
       {HERO_SLIDES.map((slide, idx) => (
         <div
           key={slide.id}
-          className={`epu-hero-slide ${idx === currentSlide ? "active" : "inactive"}`}
+          className={cn(
+            "absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-1000 ease-in-out",
+            idx === currentSlide ? "opacity-100 z-10 scale-100" : "opacity-0 z-0 scale-105 pointer-events-none"
+          )}
           style={{ backgroundImage: `url('${slide.image}')` }}
         >
-          {/* Subtle gradient overlay to match live EPU site */}
-          <div className="epu-hero-overlay" />
+          {/* Subtle gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
         </div>
       ))}
 
-      {/* Prev / Next controls */}
-      <button
-        onClick={prevSlide}
-        className="epu-hero-nav-btn epu-hero-prev"
-        aria-label="Slide trước"
-      >
-        <ChevronLeft size={24} />
-      </button>
+      {/* Prev / Next controls with Shadcn Button */}
+      <div className="absolute inset-y-0 left-4 sm:left-6 flex items-center z-20">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={prevSlide}
+          className="rounded-full h-11 w-11 bg-black/35 hover:bg-black/65 text-white border-white/20 backdrop-blur-sm transition-all"
+          aria-label="Slide trước"
+        >
+          <ChevronLeft className="h-6 w-6" />
+        </Button>
+      </div>
 
-      <button
-        onClick={nextSlide}
-        className="epu-hero-nav-btn epu-hero-next"
-        aria-label="Slide tiếp theo"
-      >
-        <ChevronRight size={24} />
-      </button>
+      <div className="absolute inset-y-0 right-4 sm:right-6 flex items-center z-20">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={nextSlide}
+          className="rounded-full h-11 w-11 bg-black/35 hover:bg-black/65 text-white border-white/20 backdrop-blur-sm transition-all"
+          aria-label="Slide tiếp theo"
+        >
+          <ChevronRight className="h-6 w-6" />
+        </Button>
+      </div>
 
       {/* Indicators */}
-      <div className="epu-hero-indicators">
+      <div className="absolute bottom-5 inset-x-0 flex justify-center items-center gap-2.5 z-20">
         {HERO_SLIDES.map((_, idx) => (
-          <div
+          <button
             key={idx}
-            className={`epu-hero-indicator ${idx === currentSlide ? "active" : ""}`}
+            className={cn(
+              "h-2.5 rounded-full transition-all duration-300",
+              idx === currentSlide
+                ? "w-8 bg-epu-orange shadow-md shadow-orange-500/50"
+                : "w-2.5 bg-white/50 hover:bg-white/80"
+            )}
             onClick={() => setCurrentSlide(idx)}
-            role="button"
-            tabIndex={0}
             aria-label={`Chuyển tới slide ${idx + 1}`}
           />
         ))}

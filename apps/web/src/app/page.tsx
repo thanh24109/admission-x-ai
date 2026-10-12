@@ -16,7 +16,7 @@ import SearchModal from "@/components/SearchModal";
 
 export default function HomePage() {
   return (
-    <div className="epu-page-root min-h-screen bg-white">
+    <div className="min-h-screen bg-white">
       {/* 1. Header with Topbar & Nav (Zustand wired) */}
       <Header />
 

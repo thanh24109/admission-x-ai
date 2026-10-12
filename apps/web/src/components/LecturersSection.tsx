@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useAppStore } from "@/store/useAppStore";
 import { LECTURERS_DATA } from "@/data/lecturers";
 
@@ -24,19 +25,19 @@ export default function LecturersSection() {
   });
 
   return (
-    <section className="epu-lecturers-section py-20 bg-slate-50/70 border-t border-slate-200/60">
-      <div className="epu-container">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+    <section className="py-16 md:py-24 bg-white border-t border-slate-200/60">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
           <div>
             <div className="flex items-center gap-2 mb-2">
               <Badge variant="default" className="text-xs uppercase font-bold tracking-wider">
                 ĐỘI NGŨ EPU
               </Badge>
             </div>
-            <h2 className="section-title mb-1">
+            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight mb-2">
               Giảng viên xuất sắc
             </h2>
-            <p className="text-slate-600 text-sm">
+            <p className="text-slate-600 text-sm max-w-xl">
               Tìm kiếm nhanh thông tin giảng viên, ban giám hiệu và lãnh đạo các đơn vị
             </p>
           </div>
@@ -49,15 +50,15 @@ export default function LecturersSection() {
               placeholder="Tìm theo tên, học vị, chức vụ..."
               value={lecturerFilter}
               onChange={(e) => setLecturerFilter(e.target.value)}
-              className="pl-10 pr-9 h-11 bg-white rounded-full border-slate-200 shadow-sm focus-visible:ring-school-navy"
+              className="pl-10 pr-9 h-11 bg-slate-50 border-slate-200 focus:bg-white rounded-full shadow-xs focus-visible:ring-school-navy"
             />
             {lecturerFilter && (
               <button
                 onClick={() => setLecturerFilter("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
                 aria-label="Xóa bộ lọc"
               >
-                <X size={16} />
+                <X className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -77,22 +78,21 @@ export default function LecturersSection() {
                   whileHover={{ y: -6 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <Card className="h-full border-slate-100 shadow-sm hover:shadow-xl transition-shadow rounded-2xl overflow-hidden bg-white">
+                  <Card className="h-full border-slate-200/80 shadow-xs hover:shadow-xl transition-all duration-300 rounded-2xl overflow-hidden bg-white hover:border-slate-300 group">
                     <CardContent className="p-6 flex flex-col items-center text-center">
                       <div className="relative mb-4">
-                        <Image
-                          src={lec.image}
-                          alt={lec.name}
-                          width={110}
-                          height={110}
-                          className="w-24 h-24 md:w-28 md:h-28 rounded-full object-cover border-4 border-slate-50 shadow-md"
-                        />
-                        <div className="absolute bottom-0 right-0 p-1.5 rounded-full bg-school-navy text-white shadow-sm">
-                          <UserCheck size={12} />
+                        <Avatar className="w-24 h-24 md:w-28 md:h-28 ring-4 ring-slate-100 shadow-md">
+                          <AvatarImage src={lec.image} alt={lec.name} />
+                          <AvatarFallback className="bg-school-navy text-white text-lg font-bold">
+                            {lec.name.slice(0, 2).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="absolute bottom-0 right-0 p-1.5 rounded-full bg-school-navy text-white shadow-sm ring-2 ring-white">
+                          <UserCheck className="h-3 w-3" />
                         </div>
                       </div>
 
-                      <h3 className="font-bold text-base text-school-navy mb-1 line-clamp-1">
+                      <h3 className="font-bold text-base text-school-navy mb-1 line-clamp-1 group-hover:text-epu-orange transition-colors">
                         {lec.name}
                       </h3>
                       <span className="text-xs font-semibold text-epu-orange mb-1">
@@ -108,7 +108,7 @@ export default function LecturersSection() {
             </AnimatePresence>
           </div>
         ) : (
-          <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 text-slate-500 shadow-sm">
+          <div className="p-12 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 shadow-xs">
             Không tìm thấy giảng viên phù hợp với từ khóa &ldquo;{lecturerFilter}&rdquo;.
           </div>
         )}

@@ -1,20 +1,5 @@
 import type { Metadata } from "next";
-import { Be_Vietnam_Pro, Playfair_Display } from "next/font/google";
 import "./globals.css";
-
-const beVietnamPro = Be_Vietnam_Pro({
-  subsets: ["vietnamese", "latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
-const playfairDisplay = Playfair_Display({
-  subsets: ["vietnamese", "latin"],
-  weight: ["400", "600", "700", "800"],
-  variable: "--font-serif",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Cổng thông tin điện tử Trường Đại học Điện lực | EPU - Electric Power University",
@@ -31,11 +16,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className={`${beVietnamPro.variable} ${playfairDisplay.variable}`}>
+    <html lang="vi">
       <head>
         <link rel="icon" href="/asset/logo-dark.svg" type="image/svg+xml" />
       </head>
-      <body>{children}</body>
+      <body className="font-sans antialiased text-slate-800 bg-white">{children}</body>
     </html>
   );
 }

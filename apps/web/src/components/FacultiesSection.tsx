@@ -3,6 +3,8 @@
 import React, { useRef } from "react";
 import Image from "next/image";
 import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { FACULTIES_DATA } from "../data/faculties";
 
 export default function FacultiesSection() {
@@ -10,74 +12,89 @@ export default function FacultiesSection() {
 
   const scrollLeft = () => {
     if (trackRef.current) {
-      trackRef.current.scrollBy({ left: -320, behavior: "smooth" });
+      trackRef.current.scrollBy({ left: -340, behavior: "smooth" });
     }
   };
 
   const scrollRight = () => {
     if (trackRef.current) {
-      trackRef.current.scrollBy({ left: 320, behavior: "smooth" });
+      trackRef.current.scrollBy({ left: 340, behavior: "smooth" });
     }
   };
 
   return (
-    <section className="epu-section" style={{ backgroundColor: "#ffffff" }}>
-      <div className="epu-container">
+    <section className="py-14 md:py-20 bg-slate-50/70 border-t border-slate-200/60">
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header with Title and Nav Arrows */}
-        <div className="epu-faculties-header">
-          <h2 className="section-title" style={{ marginBottom: 0 }}>
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight">
             Các khoa đào tạo
           </h2>
-          <div className="epu-slider-arrows">
-            <button
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
               onClick={scrollLeft}
-              className="epu-arrow-nav-btn"
+              className="rounded-full h-10 w-10 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm"
               aria-label="Khoa trước"
               title="Khoa trước"
             >
-              <ChevronLeft size={20} />
-            </button>
-            <button
+              <ChevronLeft className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
               onClick={scrollRight}
-              className="epu-arrow-nav-btn"
+              className="rounded-full h-10 w-10 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm"
               aria-label="Khoa tiếp theo"
               title="Khoa tiếp theo"
             >
-              <ChevronRight size={20} />
-            </button>
+              <ChevronRight className="h-5 w-5" />
+            </Button>
           </div>
         </div>
 
         {/* Horizontal Carousel Track */}
-        <div className="epu-faculties-track" ref={trackRef}>
+        <div
+          className="flex gap-6 overflow-x-auto pb-4 scroll-smooth no-scrollbar"
+          ref={trackRef}
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
           {FACULTIES_DATA.map((faculty) => (
-            <div key={faculty.name} className="epu-faculty-card">
-              <div className="epu-faculty-img-wrap">
+            <Card
+              key={faculty.name}
+              className="min-w-[280px] sm:min-w-[320px] max-w-[320px] shrink-0 rounded-2xl overflow-hidden border-slate-200/80 shadow-sm hover:shadow-xl transition-all duration-300 bg-white flex flex-col group"
+            >
+              <div className="relative w-full h-44 overflow-hidden bg-slate-100">
                 <Image
                   src={faculty.image}
                   alt={faculty.name}
                   fill
-                  sizes="310px"
-                  className="epu-faculty-img"
+                  sizes="320px"
+                  className="object-cover group-hover:scale-105 transition-transform duration-500"
                 />
-                <div className="epu-faculty-overlay">
-                  <h3 className="epu-faculty-title-overlay">{faculty.name}</h3>
+                <div className="absolute inset-0 bg-gradient-to-t from-school-navy/90 via-school-navy/30 to-transparent flex items-end p-4">
+                  <h3 className="font-bold text-sm sm:text-base text-white line-clamp-2 leading-snug">
+                    {faculty.name}
+                  </h3>
                 </div>
               </div>
 
-              <div className="epu-faculty-body">
-                <p className="epu-faculty-desc">{faculty.description}</p>
+              <CardContent className="p-5 flex flex-col flex-grow justify-between">
+                <p className="text-xs sm:text-sm text-slate-600 line-clamp-3 mb-4 leading-relaxed">
+                  {faculty.description}
+                </p>
                 <a
                   href={faculty.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="epu-faculty-link"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-school-navy hover:text-epu-orange uppercase tracking-wider transition-colors pt-2 border-t border-slate-100"
                 >
                   <span>Khám phá khoa</span>
-                  <ArrowRight size={14} />
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </a>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </div>
