@@ -9,7 +9,7 @@ export default function TrainingSection() {
   return (
     <section className="py-14 md:py-20 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 transition-colors duration-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight mb-8 md:mb-10">
+        <h2 className="text-3xl md:text-4xl font-sans font-bold text-school-navy dark:text-slate-100 tracking-tight mb-8 md:mb-10">
           Đào tạo
         </h2>
 

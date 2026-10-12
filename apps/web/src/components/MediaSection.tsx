@@ -21,7 +21,7 @@ export default function MediaSection() {
             VIDEO NỔI BẬT
           </Badge>
         </div>
-        <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight mb-8 md:mb-10">
+        <h2 className="text-3xl md:text-4xl font-sans font-bold text-school-navy dark:text-slate-100 tracking-tight mb-8 md:mb-10">
           Media & Giới thiệu EPU
         </h2>
 

@@ -27,7 +27,7 @@ export default function FacultiesSection() {
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header with Title and Nav Arrows */}
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight">
+          <h2 className="text-3xl md:text-4xl font-sans font-bold text-school-navy dark:text-slate-100 tracking-tight">
             Các khoa đào tạo
           </h2>
           <div className="flex items-center gap-2">

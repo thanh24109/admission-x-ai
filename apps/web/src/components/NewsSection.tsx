@@ -22,7 +22,7 @@ export default function NewsSection() {
                 TIN TỨC SỰ KIỆN
               </Badge>
             </div>
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight">
+            <h2 className="text-3xl md:text-4xl font-sans font-bold text-school-navy dark:text-slate-100 tracking-tight">
               Tin nổi bật
             </h2>
           </div>

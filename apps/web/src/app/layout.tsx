@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin", "vietnamese"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "Cổng thông tin điện tử Trường Đại học Điện lực | EPU - Electric Power University",
@@ -17,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" suppressHydrationWarning>
+    <html lang="vi" className={inter.variable} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/asset/logo-dark.svg" type="image/svg+xml" />
       </head>

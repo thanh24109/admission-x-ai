@@ -27,7 +27,7 @@ export default function AnnouncementSection() {
                 BẢNG TIN EPU
               </Badge>
             </div>
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-white tracking-tight">
+            <h2 className="text-3xl md:text-4xl font-sans font-bold text-white tracking-tight">
               Thông báo chính thức
             </h2>
           </div>

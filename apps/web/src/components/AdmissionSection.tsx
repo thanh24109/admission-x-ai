@@ -64,7 +64,7 @@ export default function AdmissionSection() {
               <div className="text-xs font-bold text-epu-orange tracking-widest uppercase mb-2">
                 {ADMISSION_DATA.subTitle}
               </div>
-              <h2 className="text-3xl md:text-5xl font-serif font-bold text-school-navy dark:text-slate-100 leading-tight">
+              <h2 className="text-3xl md:text-5xl font-sans font-bold text-school-navy dark:text-slate-100 leading-tight">
                 {ADMISSION_DATA.title} <span className="text-epu-orange">{ADMISSION_DATA.highlight}</span>
               </h2>
             </div>

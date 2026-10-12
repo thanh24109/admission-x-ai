@@ -18,7 +18,7 @@ export default function StudentActivities() {
                 ĐỜI SỐNG HỌC ĐƯỜNG
               </Badge>
             </div>
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight mb-2">
+            <h2 className="text-3xl md:text-4xl font-sans font-bold text-school-navy dark:text-slate-100 tracking-tight mb-2">
               Hoạt động sinh viên
             </h2>
             <p className="text-slate-600 dark:text-slate-400 text-sm max-w-xl">
