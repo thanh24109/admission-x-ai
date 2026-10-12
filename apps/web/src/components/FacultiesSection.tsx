@@ -23,11 +23,11 @@ export default function FacultiesSection() {
   };
 
   return (
-    <section className="py-14 md:py-20 bg-slate-50/70 border-t border-slate-200/60">
+    <section className="py-14 md:py-20 bg-slate-50/70 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800 transition-colors duration-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header with Title and Nav Arrows */}
         <div className="flex justify-between items-center mb-8">
-          <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight">
+          <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight">
             Các khoa đào tạo
           </h2>
           <div className="flex items-center gap-2">
@@ -35,7 +35,7 @@ export default function FacultiesSection() {
               variant="outline"
               size="icon"
               onClick={scrollLeft}
-              className="rounded-full h-10 w-10 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm"
+              className="rounded-full h-10 w-10 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-sm"
               aria-label="Khoa trước"
               title="Khoa trước"
             >
@@ -45,7 +45,7 @@ export default function FacultiesSection() {
               variant="outline"
               size="icon"
               onClick={scrollRight}
-              className="rounded-full h-10 w-10 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-sm"
+              className="rounded-full h-10 w-10 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 shadow-sm"
               aria-label="Khoa tiếp theo"
               title="Khoa tiếp theo"
             >
@@ -63,9 +63,9 @@ export default function FacultiesSection() {
           {FACULTIES_DATA.map((faculty) => (
             <Card
               key={faculty.name}
-              className="min-w-[280px] sm:min-w-[320px] max-w-[320px] shrink-0 rounded-2xl overflow-hidden border-slate-200/80 shadow-sm hover:shadow-xl transition-all duration-300 bg-white flex flex-col group"
+              className="min-w-[280px] sm:min-w-[320px] max-w-[320px] shrink-0 rounded-2xl overflow-hidden border-slate-200/80 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all duration-300 bg-white dark:bg-slate-900 flex flex-col group"
             >
-              <div className="relative w-full h-44 overflow-hidden bg-slate-100">
+              <div className="relative w-full h-44 overflow-hidden bg-slate-100 dark:bg-slate-800">
                 <Image
                   src={faculty.image}
                   alt={faculty.name}
@@ -73,7 +73,7 @@ export default function FacultiesSection() {
                   sizes="320px"
                   className="object-cover group-hover:scale-105 transition-transform duration-500"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-school-navy/90 via-school-navy/30 to-transparent flex items-end p-4">
+                <div className="absolute inset-0 bg-gradient-to-t from-school-navy/90 dark:from-black/90 via-school-navy/30 dark:via-black/30 to-transparent flex items-end p-4">
                   <h3 className="font-bold text-sm sm:text-base text-white line-clamp-2 leading-snug">
                     {faculty.name}
                   </h3>
@@ -81,14 +81,14 @@ export default function FacultiesSection() {
               </div>
 
               <CardContent className="p-5 flex flex-col flex-grow justify-between">
-                <p className="text-xs sm:text-sm text-slate-600 line-clamp-3 mb-4 leading-relaxed">
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 line-clamp-3 mb-4 leading-relaxed">
                   {faculty.description}
                 </p>
                 <a
                   href={faculty.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-school-navy hover:text-epu-orange uppercase tracking-wider transition-colors pt-2 border-t border-slate-100"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-school-navy dark:text-amber-400 hover:text-epu-orange dark:hover:text-amber-300 uppercase tracking-wider transition-colors pt-2 border-t border-slate-100 dark:border-slate-800"
                 >
                   <span>Khám phá khoa</span>
                   <ArrowRight className="h-3.5 w-3.5" />

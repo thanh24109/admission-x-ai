@@ -9,7 +9,7 @@ import { STUDENT_ACTIVITIES } from "../data/activities";
 
 export default function StudentActivities() {
   return (
-    <section className="py-14 md:py-20 bg-slate-50/70 border-t border-slate-200/60">
+    <section className="py-14 md:py-20 bg-slate-50/70 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800 transition-colors duration-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8 md:mb-10">
           <div>
@@ -18,14 +18,18 @@ export default function StudentActivities() {
                 ĐỜI SỐNG HỌC ĐƯỜNG
               </Badge>
             </div>
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight mb-2">
+            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight mb-2">
               Hoạt động sinh viên
             </h2>
-            <p className="text-slate-600 text-sm max-w-xl">
+            <p className="text-slate-600 dark:text-slate-400 text-sm max-w-xl">
               Sôi nổi các phong trào văn hóa, thể thao, tình nguyện và học thuật của sinh viên EPU
             </p>
           </div>
-          <Button variant="outline" asChild className="rounded-full gap-2 border-slate-200 hover:bg-slate-100 bg-white">
+          <Button
+            variant="outline"
+            asChild
+            className="rounded-full gap-2 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+          >
             <Link href="/sinhvien/hoatdongsinhvien">
               <span className="text-xs uppercase font-bold tracking-wider">Xem tất cả</span>
               <ArrowRight className="h-3.5 w-3.5" />
@@ -37,10 +41,10 @@ export default function StudentActivities() {
           {STUDENT_ACTIVITIES.map((act) => (
             <Card
               key={act.id}
-              className="rounded-2xl border-slate-200/80 shadow-xs hover:shadow-xl transition-all duration-300 overflow-hidden bg-white group flex flex-col"
+              className="rounded-2xl border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-xl transition-all duration-300 overflow-hidden bg-white dark:bg-slate-900 group flex flex-col"
             >
               <Link href={act.link} className="flex flex-col h-full">
-                <div className="relative w-full h-48 overflow-hidden bg-slate-100">
+                <div className="relative w-full h-48 overflow-hidden bg-slate-100 dark:bg-slate-800">
                   <Image
                     src={act.image}
                     alt={act.title}
@@ -52,18 +56,18 @@ export default function StudentActivities() {
                 <CardContent className="p-5 flex flex-col flex-grow justify-between">
                   <div>
                     <div className="flex justify-between items-center mb-2.5">
-                      <span className="font-bold text-xs text-epu-orange uppercase tracking-wider">
+                      <span className="font-bold text-xs text-epu-orange dark:text-amber-400 uppercase tracking-wider">
                         {act.category}
                       </span>
                       {act.date && (
-                        <span className="text-xs text-slate-400">{act.date}</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">{act.date}</span>
                       )}
                     </div>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-school-navy line-clamp-2 transition-colors leading-snug mb-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-school-navy dark:group-hover:text-amber-400 line-clamp-2 transition-colors leading-snug mb-2">
                       {act.title}
                     </h3>
                     {act.excerpt && (
-                      <p className="text-sm text-slate-500 line-clamp-2 leading-relaxed">
+                      <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                         {act.excerpt}
                       </p>
                     )}

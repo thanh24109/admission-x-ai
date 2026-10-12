@@ -48,11 +48,11 @@ export default function SearchModal() {
 
   return (
     <Dialog open={isSearchOpen} onOpenChange={(open) => !open && closeSearch()}>
-      <DialogContent className="sm:max-w-2xl p-0 gap-0 overflow-hidden bg-white rounded-2xl shadow-2xl border-slate-200">
-        <DialogHeader className="p-4 border-b border-slate-100 bg-slate-50/50">
+      <DialogContent className="sm:max-w-2xl p-0 gap-0 overflow-hidden bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100">
+        <DialogHeader className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40">
           <div className="flex items-center gap-3">
             <Search className="h-5 w-5 text-epu-orange shrink-0" />
-            <DialogTitle className="text-base font-bold text-school-navy flex items-center gap-2">
+            <DialogTitle className="text-base font-bold text-school-navy dark:text-slate-100 flex items-center gap-2">
               <span>Tìm kiếm cổng thông tin EPU</span>
               <Badge variant="secondary" className="text-[10px] uppercase font-bold py-0.5 px-2">
                 Live Search
@@ -62,15 +62,15 @@ export default function SearchModal() {
         </DialogHeader>
 
         {/* Search Input Box */}
-        <div className="p-4 border-b border-slate-100">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
             <Input
               type="text"
               placeholder="Nhập từ khóa (vd: tuyển sinh, học phí, công nghệ thông tin, thông báo)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 h-11 text-base bg-white border-slate-200 focus-visible:ring-school-navy rounded-xl"
+              className="pl-10 h-11 text-base bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus-visible:ring-school-navy dark:focus-visible:ring-epu-orange rounded-xl"
               autoFocus
             />
           </div>
@@ -80,15 +80,15 @@ export default function SearchModal() {
         <div className="max-h-[460px] overflow-y-auto p-4 space-y-4">
           {!q ? (
             <div className="text-center py-10 space-y-3">
-              <div className="inline-flex p-3 rounded-full bg-slate-100 text-slate-400">
+              <div className="inline-flex p-3 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500">
                 <Sparkles className="h-6 w-6 text-epu-orange" />
               </div>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 Nhập từ khóa như <strong>&ldquo;tuyển sinh&rdquo;</strong>, <strong>&ldquo;khoa&rdquo;</strong>, hoặc <strong>&ldquo;học phí&rdquo;</strong> để tra cứu nhanh thông tin EPU.
               </p>
             </div>
           ) : totalResults === 0 ? (
-            <div className="text-center py-10 text-sm text-slate-500">
+            <div className="text-center py-10 text-sm text-slate-500 dark:text-slate-400">
               Không tìm thấy kết quả nào khớp với từ khóa &ldquo;{searchQuery}&rdquo;.
             </div>
           ) : (
@@ -114,10 +114,10 @@ export default function SearchModal() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={closeSearch}
-                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200"
+                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                         >
                           <Building className="h-4 w-4 text-epu-orange shrink-0" />
-                          <span className="text-sm font-semibold text-school-navy">
+                          <span className="text-sm font-semibold text-school-navy dark:text-slate-200">
                             {f.name}
                           </span>
                         </a>
@@ -144,10 +144,10 @@ export default function SearchModal() {
                           key={t.name}
                           href={t.href}
                           onClick={closeSearch}
-                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200"
+                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                         >
                           <GraduationCap className="h-4 w-4 text-epu-orange shrink-0" />
-                          <span className="text-sm font-semibold text-school-navy">
+                          <span className="text-sm font-semibold text-school-navy dark:text-slate-200">
                             {t.name}
                           </span>
                         </Link>
@@ -174,7 +174,7 @@ export default function SearchModal() {
                           key={n.id}
                           href={n.link}
                           onClick={closeSearch}
-                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-800"
+                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors text-sm text-slate-800 dark:text-slate-200"
                         >
                           <FileText className="h-4 w-4 text-slate-400 shrink-0" />
                           <span className="line-clamp-1">{n.title}</span>
@@ -202,7 +202,7 @@ export default function SearchModal() {
                           key={a.id}
                           href={a.postLink || a.link}
                           onClick={closeSearch}
-                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors text-sm text-slate-800"
+                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors text-sm text-slate-800 dark:text-slate-200"
                         >
                           <Bell className="h-4 w-4 text-slate-400 shrink-0" />
                           <span className="line-clamp-1">{a.title}</span>

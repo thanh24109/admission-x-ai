@@ -7,9 +7,9 @@ import { TRAINING_PROGRAMS } from "../data/training";
 
 export default function TrainingSection() {
   return (
-    <section className="py-14 md:py-20 bg-white border-t border-slate-100">
+    <section className="py-14 md:py-20 bg-white dark:bg-slate-950 border-t border-slate-100 dark:border-slate-800 transition-colors duration-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight mb-8 md:mb-10">
+        <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight mb-8 md:mb-10">
           Đào tạo
         </h2>
 
@@ -33,8 +33,8 @@ export default function TrainingSection() {
                     className="object-cover group-hover:scale-105 transition-transform duration-700"
                   />
                   {/* Gradient overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-school-navy/95 via-school-navy/35 to-transparent flex items-end p-5">
-                    <div className="w-full flex items-center justify-between gap-2 p-3.5 rounded-xl bg-white/15 backdrop-blur-md border border-white/20 text-white font-bold text-sm sm:text-base group-hover:bg-epu-orange group-hover:border-transparent transition-all">
+                  <div className="absolute inset-0 bg-gradient-to-t from-school-navy/95 dark:from-black/95 via-school-navy/35 dark:via-black/40 to-transparent flex items-end p-5">
+                    <div className="w-full flex items-center justify-between gap-2 p-3.5 rounded-xl bg-white/15 dark:bg-white/10 backdrop-blur-md border border-white/20 text-white font-bold text-sm sm:text-base group-hover:bg-epu-orange group-hover:border-transparent transition-all">
                       <span className="line-clamp-1">{prog.name}</span>
                       <ArrowRight className="h-4 w-4 shrink-0 group-hover:translate-x-1 transition-transform" />
                     </div>

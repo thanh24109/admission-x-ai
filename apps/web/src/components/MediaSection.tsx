@@ -14,14 +14,14 @@ export default function MediaSection() {
   const { activeVideo, setActiveVideo } = useAppStore();
 
   return (
-    <section className="py-16 md:py-24 bg-white border-t border-slate-200/60">
+    <section className="py-16 md:py-24 bg-white dark:bg-slate-950 border-t border-slate-200/60 dark:border-slate-800 transition-colors duration-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-2 mb-2">
           <Badge variant="secondary" className="text-xs uppercase font-bold tracking-wider">
             VIDEO NỔI BẬT
           </Badge>
         </div>
-        <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight mb-8 md:mb-10">
+        <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight mb-8 md:mb-10">
           Media & Giới thiệu EPU
         </h2>
 
@@ -36,7 +36,7 @@ export default function MediaSection() {
               role="button"
               tabIndex={0}
             >
-              <Card className="h-full rounded-2xl border-slate-200/80 shadow-xs hover:shadow-xl transition-all duration-300 overflow-hidden bg-white group flex flex-col">
+              <Card className="h-full rounded-2xl border-slate-200/80 dark:border-slate-800 shadow-xs hover:shadow-xl transition-all duration-300 overflow-hidden bg-white dark:bg-slate-900 group flex flex-col">
                 <div className="relative w-full aspect-video overflow-hidden bg-slate-900">
                   <Image
                     src={vid.poster}
@@ -60,13 +60,13 @@ export default function MediaSection() {
 
                 <CardContent className="p-5 flex flex-col flex-grow justify-between">
                   <div>
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold text-epu-orange border-epu-orange/40 mb-2.5">
+                    <Badge variant="outline" className="text-[10px] uppercase font-bold text-epu-orange dark:text-amber-400 border-epu-orange/40 dark:border-amber-400/40 mb-2.5">
                       {vid.label}
                     </Badge>
-                    <h3 className="text-base font-bold text-slate-900 group-hover:text-school-navy transition-colors line-clamp-2 leading-snug mb-2">
+                    <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-school-navy dark:group-hover:text-amber-400 transition-colors line-clamp-2 leading-snug mb-2">
                       {vid.title}
                     </h3>
-                    <p className="text-xs sm:text-sm text-slate-500 line-clamp-2 leading-relaxed">
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">
                       {vid.description}
                     </p>
                   </div>

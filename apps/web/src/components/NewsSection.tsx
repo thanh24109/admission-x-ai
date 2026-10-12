@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowRight, Newspaper } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { motion } from "motion/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +12,7 @@ import { SPOTLIGHT_NEWS } from "@/data/news";
 
 export default function NewsSection() {
   return (
-    <section className="py-14 md:py-20 bg-white">
+    <section className="py-14 md:py-20 bg-white dark:bg-slate-950 transition-colors duration-200">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Heading */}
         <div className="flex justify-between items-end mb-8 md:mb-10">
@@ -22,12 +22,16 @@ export default function NewsSection() {
                 TIN TỨC SỰ KIỆN
               </Badge>
             </div>
-            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy tracking-tight">
+            <h2 className="text-3xl md:text-4xl font-serif font-bold text-school-navy dark:text-slate-100 tracking-tight">
               Tin nổi bật
             </h2>
           </div>
 
-          <Button variant="outline" asChild className="rounded-full gap-2 border-slate-200 hover:bg-slate-50">
+          <Button
+            variant="outline"
+            asChild
+            className="rounded-full gap-2 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 dark:text-slate-200"
+          >
             <Link href="/tintuc/all">
               <span className="text-xs uppercase font-bold tracking-wider">Xem tất cả</span>
               <ArrowRight className="h-3.5 w-3.5" />
@@ -48,7 +52,7 @@ export default function NewsSection() {
                   transition={{ duration: 0.2 }}
                   className="h-full"
                 >
-                  <Card className="h-full relative min-h-[300px] overflow-hidden rounded-2xl border-slate-100 shadow-sm hover:shadow-xl transition-all group">
+                  <Card className="h-full relative min-h-[300px] overflow-hidden rounded-2xl border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all group bg-slate-900">
                     <Link href={item.link} className="block w-full h-full relative">
                       <Image
                         src={item.image}
@@ -58,7 +62,7 @@ export default function NewsSection() {
                         className="object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                       {/* Dark gradient overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#001423]/95 via-[#001423]/45 to-transparent flex flex-col justify-end p-6">
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#001423]/95 dark:from-black/95 via-[#001423]/50 to-transparent flex flex-col justify-end p-6">
                         <Badge variant="secondary" className="w-fit mb-2.5 text-[10px] font-bold">
                           {item.category}
                         </Badge>
@@ -79,9 +83,9 @@ export default function NewsSection() {
                 transition={{ duration: 0.2 }}
                 className="h-full"
               >
-                <Card className="h-full rounded-2xl border-slate-100 shadow-sm hover:shadow-xl transition-all overflow-hidden bg-white group flex flex-col">
+                <Card className="h-full rounded-2xl border-slate-200/70 dark:border-slate-800/80 shadow-xs hover:shadow-xl transition-all overflow-hidden bg-white dark:bg-slate-900 group flex flex-col">
                   <Link href={item.link} className="flex flex-col h-full">
-                    <div className="relative w-full h-48 overflow-hidden bg-slate-100">
+                    <div className="relative w-full h-48 overflow-hidden bg-slate-100 dark:bg-slate-800">
                       <Image
                         src={item.image}
                         alt={item.title}
@@ -95,7 +99,7 @@ export default function NewsSection() {
                         <span className="font-bold text-xs text-epu-orange mb-2 block uppercase tracking-wider">
                           {item.category}
                         </span>
-                        <h3 className="text-base font-bold text-slate-900 group-hover:text-school-navy line-clamp-3 transition-colors leading-snug">
+                        <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-school-navy dark:group-hover:text-amber-300 line-clamp-3 transition-colors leading-snug">
                           {item.title}
                         </h3>
                       </div>

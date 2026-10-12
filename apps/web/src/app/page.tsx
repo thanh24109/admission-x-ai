@@ -16,15 +16,15 @@ import SearchModal from "@/components/SearchModal";
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
       {/* 1. Header with Topbar & Nav (Zustand wired) */}
       <Header />
 
       {/* 2. Main Hero Banner Carousel */}
       <HeroSlider />
 
-      {/* Main Content Area */}
-      <main>
+      {/* Main Content Area - Slides over the fixed hero banner as you scroll */}
+      <main className="relative z-10 bg-white dark:bg-slate-950 shadow-[0_-20px_50px_rgba(0,0,0,0.15)] dark:shadow-[0_-20px_50px_rgba(0,0,0,0.6)]">
         {/* 3. Tin nổi bật */}
         <NewsSection />
 

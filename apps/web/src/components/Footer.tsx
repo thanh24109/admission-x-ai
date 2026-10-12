@@ -7,7 +7,7 @@ import { EPU_FOOTER } from "../data/footer";
 
 export default function Footer() {
   return (
-    <footer className="bg-school-navy text-white pt-16 pb-8 border-t border-white/10">
+    <footer className="relative z-10 bg-school-navy text-white pt-16 pb-8 border-t border-white/10 shadow-[0_-10px_30px_rgba(0,0,0,0.2)]">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 lg:gap-12 mb-12">
           {/* Column 1: Logo & Socials & About */}
