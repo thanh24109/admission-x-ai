@@ -12,3 +12,6 @@ members = ["apps/api"]
 
 [tool.uv.sources]
 admission-x-api = { workspace = true }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

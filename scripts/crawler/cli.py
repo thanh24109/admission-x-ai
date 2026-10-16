@@ -12,6 +12,11 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+# Ensure project root is in sys.path when executed directly as a script
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from scripts.crawler.config import CrawlerConfig, load_sources_registry
 from scripts.crawler.pipeline import CrawlerPipeline
 

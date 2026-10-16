@@ -172,6 +172,53 @@ npm run lint:web  # hoặc: npm --prefix apps/web run lint
 
 ---
 
+### 3. Thu thập & Chuẩn hóa dữ liệu tuyển sinh EPU (Admissions Crawler)
+
+Hệ thống tích hợp sẵn pipeline crawler dữ liệu tuyển sinh Đại học Điện Lực (EPU) theo cơ chế **Local-First, Idempotent và Tái lập hoàn toàn (Reproducible)**. Dữ liệu thô và tài liệu tải về (`data/crawled/`) được loại trừ khỏi Git để giữ repository gọn nhẹ.
+
+Khi chuyển dự án sang máy tính mới, bạn có thể tái tạo trọn vẹn 100% tập dữ liệu bằng các lệnh sau:
+
+#### Quy trình tái tạo dữ liệu trên máy mới:
+
+```bash
+# 1. Tải toàn bộ dữ liệu tuyển sinh (HTML, PDF, 38 ngành học & khung chương trình đào tạo)
+npm run crawler:crawl
+# Hoặc gọi trực tiếp Python:
+# python scripts/crawler/cli.py crawl
+
+# 2. Chuyển đổi các tài liệu Word cũ (.doc) sang chuẩn .docx (nếu có)
+npm run crawler:convert
+# Hoặc: python scripts/crawler/cli.py convert-doc
+
+# 3. Xem báo cáo tổng hợp dữ liệu đã thu thập
+npm run crawler:report
+# Hoặc: python scripts/crawler/cli.py report
+
+# 4. Thử lại các URL tải không thành công do mạng chập chờn (nếu có)
+npm run crawler:retry
+# Hoặc: python scripts/crawler/cli.py retry-failed
+
+# 5. Chạy bộ kiểm thử tự động của Crawler (26 unit & idempotency tests)
+npm run test:crawler
+# Hoặc: uv run pytest tests/test_crawler -q
+```
+
+#### Cấu trúc thư mục dữ liệu được tự động sinh ra (`data/crawled/`):
+```text
+data/crawled/
+├── documents/          # Tệp đính kèm chính thức (PDF, DOC, DOCX: đề án, điểm chuẩn, biểu mẫu)
+├── html/               # Nội dung các trang web tuyển sinh đã bóc tách metadata
+├── programs/           # Dữ liệu chi tiết 38 ngành đào tạo đại học và khung chương trình
+├── converted/          # Tệp DOCX được chuyển đổi tự động từ định dạng DOC cũ
+└── manifests/          # Sổ bộ theo dõi (crawl_manifest.json, program_catalog.json)
+```
+
+> **Lưu ý khi chuyển sang máy khác:**
+> - Máy mới cần có kết nối mạng tới các cổng thông tin của trường: `tuyensinh.epu.edu.vn`, `epu.edu.vn` và `old.epu.edu.vn`.
+> - Để sử dụng tính năng chuyển đổi file `.doc` cũ sang `.docx`, máy tính cần cài sẵn **LibreOffice** (miễn phí cho Windows/macOS/Linux) hoặc **Microsoft Word** (nếu dùng Windows). Nếu không cài, pipeline vẫn thu thập và lưu trữ file `.doc` gốc đầy đủ, không gây lỗi quy trình.
+
+---
+
 ## 9. Danh mục API chính (`apps/api`)
 
 | Method | Endpoint | Mô tả |
