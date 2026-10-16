@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CandidateProfile } from "@/types/candidate";
+import { useMockAuth } from "@/lib/mockAuth";
 
 interface CandidateTopbarProps {
   profile: CandidateProfile;
@@ -37,6 +38,11 @@ export function CandidateTopbar({
   const { theme, setTheme } = useTheme();
   const [hasUnread, setHasUnread] = useState(profile.unreadCount > 0);
   const [searchQuery, setSearchQuery] = useState("");
+  const { isMock, user, logout } = useMockAuth();
+
+  const displayName = isMock && user ? user.name : profile.name;
+  const displayRole = isMock && user ? user.role : profile.role;
+  const displayAvatar = isMock && user?.avatarUrl ? user.avatarUrl : profile.avatarUrl;
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 md:px-7 bg-white dark:bg-[#0A1730] border-b border-[#E3ECF8] dark:border-[#1E3250] transition-colors">
@@ -161,8 +167,8 @@ export function CandidateTopbar({
             >
               <div className="relative w-9 h-9 rounded-full overflow-hidden ring-2 ring-[#0866D9]/20 shadow-xs shrink-0">
                 <Image
-                  src={profile.avatarUrl}
-                  alt={profile.name}
+                  src={displayAvatar}
+                  alt={displayName}
                   width={36}
                   height={36}
                   className="object-cover w-full h-full"
@@ -171,10 +177,10 @@ export function CandidateTopbar({
 
               <div className="hidden md:flex flex-col text-left">
                 <span className="text-sm font-bold text-[#0B1D49] dark:text-white leading-tight">
-                  {profile.name}
+                  {displayName}
                 </span>
                 <span className="text-xs text-[#64748B] dark:text-[#94A3B8] leading-tight">
-                  {profile.role}
+                  {displayRole}
                 </span>
               </div>
             </button>
@@ -184,8 +190,8 @@ export function CandidateTopbar({
             className="w-56 p-1.5 bg-white dark:bg-[#0F1E38] border-[#E3ECF8] dark:border-[#1E3250] shadow-lg rounded-xl"
           >
             <div className="px-3 py-2 border-b border-[#E3ECF8] dark:border-[#1E3250]">
-              <p className="text-sm font-bold text-[#0B1D49] dark:text-white">{profile.name}</p>
-              <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">{profile.role} • EPU</p>
+              <p className="text-sm font-bold text-[#0B1D49] dark:text-white">{displayName}</p>
+              <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">{displayRole} • EPU</p>
             </div>
             <div className="py-1">
               <DropdownMenuItem asChild>
@@ -208,14 +214,27 @@ export function CandidateTopbar({
               </DropdownMenuItem>
             </div>
             <DropdownMenuSeparator className="bg-[#E3ECF8] dark:bg-[#1E3250]" />
-            <DropdownMenuItem asChild>
-              <Link
-                href="/login"
-                className="flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 rounded-lg cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/30"
-              >
-                <LogOut className="w-4 h-4" />
-                Đăng xuất
-              </Link>
+            <DropdownMenuItem
+              onClick={isMock ? logout : undefined}
+              asChild={!isMock}
+            >
+              {isMock ? (
+                <button
+                  type="button"
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 rounded-lg cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/30 w-full text-left"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Đăng xuất
+                </button>
+              ) : (
+                <Link
+                  href="/login"
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-rose-600 dark:text-rose-400 rounded-lg cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Đăng xuất
+                </Link>
+              )}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

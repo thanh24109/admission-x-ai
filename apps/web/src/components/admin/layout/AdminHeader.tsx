@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Search, Bell, Menu, ChevronDown, Check, User, Shield, LogOut } from "lucide-react";
 import { AdminThemeToggle } from "./AdminThemeToggle";
+import { useMockAuth } from "@/lib/mockAuth";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +24,11 @@ export function AdminHeader({
   userRole = "Quản trị viên",
 }: AdminHeaderProps) {
   const [hasUnread, setHasUnread] = useState(true);
+  const { isMock, user, logout } = useMockAuth();
+
+  const displayName = isMock && user ? user.name : userName;
+  const displayRole = isMock && user ? `Quản trị viên (${user.role})` : userRole;
+  const displayEmail = isMock && user ? user.email : "admin@epu.edu.vn";
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-[68px] px-6 bg-[#F8FBFF] dark:bg-[#0A1730] border-b border-[#E3ECF8] dark:border-[#253B5B] transition-colors duration-200">
@@ -117,10 +123,10 @@ export function AdminHeader({
               {/* Name & Role */}
               <div className="hidden md:flex flex-col text-left">
                 <span className="text-sm font-semibold text-[#07164F] dark:text-[#F1F6FF] leading-tight">
-                  {userName}
+                  {displayName}
                 </span>
                 <span className="text-xs text-[#667DAA] dark:text-[#9CB1D3] leading-tight mt-0.5">
-                  {userRole}
+                  {displayRole}
                 </span>
               </div>
 
@@ -132,8 +138,8 @@ export function AdminHeader({
               Tài khoản quản trị
             </div>
             <div className="px-2 py-1.5 text-sm font-medium text-[#07164F] dark:text-white">
-              {userName}
-              <div className="text-xs text-[#667DAA] dark:text-[#9CB1D3] font-normal">admin@epu.edu.vn</div>
+              {displayName}
+              <div className="text-xs text-[#667DAA] dark:text-[#9CB1D3] font-normal">{displayEmail}</div>
             </div>
             <DropdownMenuSeparator className="bg-[#E3ECF8] dark:bg-[#253B5B]" />
             <DropdownMenuItem className="text-xs flex items-center gap-2 cursor-pointer text-[#07164F] dark:text-[#F1F6FF] hover:bg-[#F0F5FD] dark:hover:bg-[#142640]">
@@ -145,7 +151,10 @@ export function AdminHeader({
               <span>Bảo mật & Phân quyền</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-[#E3ECF8] dark:bg-[#253B5B]" />
-            <DropdownMenuItem className="text-xs flex items-center gap-2 cursor-pointer text-[#F43F5E] dark:text-[#FF5577] hover:bg-rose-50 dark:hover:bg-rose-950/30">
+            <DropdownMenuItem
+              onClick={isMock ? logout : undefined}
+              className="text-xs flex items-center gap-2 cursor-pointer text-[#F43F5E] dark:text-[#FF5577] hover:bg-rose-50 dark:hover:bg-rose-950/30"
+            >
               <LogOut className="w-3.5 h-3.5" />
               <span>Đăng xuất</span>
             </DropdownMenuItem>

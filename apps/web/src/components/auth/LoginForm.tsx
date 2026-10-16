@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { PasswordField } from "@/components/auth/PasswordField";
+import { DevelopmentQuickLogin } from "@/components/auth/DevelopmentQuickLogin";
 import { authService, getRedirectPathForRole } from "@/lib/auth";
 
 export function LoginForm() {
@@ -194,6 +195,9 @@ export function LoginForm() {
           )}
         </Button>
       </form>
+
+      {/* Development Quick Login Section (Mock Auth - Development Only) */}
+      <DevelopmentQuickLogin />
 
       {/* Social login divider: "hoặc đăng nhập với" */}
       <div className="relative my-6 text-center">
