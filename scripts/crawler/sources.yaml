@@ -1,0 +1,125 @@
+# Official EPU Crawl Sources Registry
+# Priority P0: Mandatory Core Sources
+# Priority P1: Secondary Supplementary Sources
+
+sources:
+  # P0 — Source A: 38 Undergraduate Programs (HIGHEST PRIORITY)
+  - id: epu_programs
+    name: "Chương trình đào tạo Đại học chính quy EPU (38 ngành)"
+    url: "https://epu.edu.vn/page/dai-hoc"
+    priority: "P0"
+    source_type: "program_listing"
+    max_pages: 5
+    description: "Trang chính thức liệt kê 38 ngành/chương trình đào tạo đại học chính quy của EPU kèm tệp chương trình chi tiết."
+    discover_attachments: true
+    discover_links: false
+
+  # P0 — Source B: EPU Admissions Portal Homepage
+  - id: epu_admissions_home
+    name: "Cổng thông tin tuyển sinh EPU"
+    url: "https://tuyensinh.epu.edu.vn/"
+    priority: "P0"
+    source_type: "admissions_page"
+    max_pages: 20
+    description: "Trang chủ cổng thông tin tuyển sinh Trường Đại học Điện lực."
+    discover_attachments: true
+    discover_links: true
+
+  # P0 — Source C: Undergraduate Admissions Listing
+  - id: epu_admissions_ug_list
+    name: "Danh sách tin tuyển sinh Đại học"
+    url: "https://tuyensinh.epu.edu.vn/danh-sach-tin/dai-hoc-2320-1.html"
+    priority: "P0"
+    source_type: "listing"
+    max_pages: 30
+    description: "Danh sách tin tức và thông báo tuyển sinh đại học chính quy."
+    discover_attachments: true
+    discover_links: true
+
+  # P0 — Source D: Admissions Information 2026
+  - id: epu_admissions_2026_info
+    name: "Thông tin tuyển sinh năm 2026 EPU"
+    url: "https://tuyensinh.epu.edu.vn/chi-tiet-nganh-dao-tao/truong-dai-hoc-dien-luc-thong-tin-tuyen-sinh-nam-2026-12454.html"
+    priority: "P0"
+    source_type: "admissions_page"
+    max_pages: 10
+    description: "Chi tiết thông tin đề án và phương thức tuyển sinh EPU năm 2026."
+    discover_attachments: true
+    discover_links: true
+
+  # P0 — Source E: Admissions / Application Guidance 2026
+  - id: epu_admissions_2026_survey
+    name: "Khảo sát hồ sơ trực tuyến Đại học chính quy năm 2026"
+    url: "https://tuyensinh.epu.edu.vn/chi-tiet-tin/he-thong-khao-sat-ho-so-truc-tuyen-trinh-do-dai-hoc-chinh-quy-nam-2026-12465.html"
+    priority: "P0"
+    source_type: "admissions_page"
+    max_pages: 10
+    description: "Hướng dẫn khảo sát hồ sơ xét tuyển trực tuyến trình độ đại học chính quy 2026."
+    discover_attachments: true
+    discover_links: true
+
+  # P0 — Source F: Additional Undergraduate Training Info
+  - id: epu_admissions_ug_training
+    name: "Trang đào tạo Đại học tuyển sinh"
+    url: "https://tuyensinh.epu.edu.vn/trang/dai-hoc-2222.html"
+    priority: "P0"
+    source_type: "admissions_page"
+    max_pages: 10
+    description: "Trang giới thiệu tổng quan đào tạo đại học trên cổng tuyển sinh."
+    discover_attachments: true
+    discover_links: true
+
+  # P1 — Secondary Sources
+  - id: epu_admissions_news
+    name: "Tin tức tuyển sinh"
+    url: "https://tuyensinh.epu.edu.vn/danh-sach-tin/tin-tuc-tuyen-sinh-2121-1.html"
+    priority: "P1"
+    source_type: "listing"
+    max_pages: 20
+    description: "Tin tức sự kiện và hoạt động tuyển sinh."
+    discover_attachments: true
+    discover_links: true
+
+  # P1 — Secondary Source: Majors List
+  - id: epu_admissions_programs_list
+    name: "Ngành đào tạo tuyển sinh"
+    url: "https://tuyensinh.epu.edu.vn/danh-sach-tin/nganh-dao-tao-2309-1.html"
+    priority: "P1"
+    source_type: "listing"
+    max_pages: 20
+    description: "Danh sách bài viết ngành đào tạo."
+    discover_attachments: true
+    discover_links: true
+
+  # P1 — Secondary Source: Counseling by Major 2026
+  - id: epu_admissions_2026_counseling
+    name: "Thông tin tư vấn tuyển sinh theo ngành 2026"
+    url: "https://tuyensinh.epu.edu.vn/chi-tiet-nganh-dao-tao/thong-tin-tu-van-tuyen-sinh-theo-nganh-dao-tao-nam-2026-12464.html"
+    priority: "P1"
+    source_type: "admissions_page"
+    max_pages: 10
+    description: "Tư vấn tuyển sinh theo ngành đào tạo năm 2026."
+    discover_attachments: true
+    discover_links: true
+
+  # P1 — Secondary Source: Curriculum Framework CTSV
+  - id: epu_ctsv_framework
+    name: "Chương trình khung các ngành đào tạo ĐH chính quy (CTSV)"
+    url: "https://ctsv.epu.edu.vn/chi-tiet-tin/chuong-trinh-khung-cac-nganh-dao-tao-he-dai-hoc-chinh-qui-14-38.html"
+    priority: "P1"
+    source_type: "admissions_page"
+    max_pages: 10
+    description: "Chương trình khung các ngành đào tạo chính quy trên cổng Công tác Sinh viên."
+    discover_attachments: true
+    discover_links: true
+
+  # P1 — Secondary Source: General Training List
+  - id: epu_admissions_training
+    name: "Danh sách tin đào tạo"
+    url: "https://tuyensinh.epu.edu.vn/danh-sach-tin/dao-tao-1121-1.html"
+    priority: "P1"
+    source_type: "listing"
+    max_pages: 20
+    description: "Thông tin đào tạo chung."
+    discover_attachments: true
+    discover_links: true

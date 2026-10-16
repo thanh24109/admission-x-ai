@@ -7,11 +7,13 @@ import { usePathname } from "next/navigation";
 import {
   Home,
   Database,
+  BookOpen,
   Users,
   Headphones,
+  FlaskConical,
   PieChart,
-  Sliders,
-  FileSpreadsheet,
+  SlidersHorizontal,
+  FileClock,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -29,6 +31,7 @@ interface NavGroup {
   title: string;
   icon: React.ElementType;
   href?: string;
+  hasDividerAbove?: boolean;
   children?: { title: string; href: string }[];
 }
 
@@ -42,8 +45,10 @@ export function AdminSidebar({
   // State for expanded menu groups
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     rag: true,
+    cms: false,
     users: false,
     consultation: false,
+    rag_eval: false,
     analytics: false,
     ai_config: false,
     system_log: false,
@@ -59,13 +64,26 @@ export function AdminSidebar({
   const navGroups: NavGroup[] = [
     {
       id: "rag",
-      title: "Kho tài liệu RAG",
+      title: "Kho tri thức RAG",
       icon: Database,
       children: [
-        { title: "Tài liệu tuyển sinh", href: "/admin/documents" },
+        { title: "Nguồn tri thức", href: "/admin/documents" },
         { title: "Kiểm duyệt tài liệu", href: "/admin/documents/moderation" },
         { title: "Danh mục", href: "/admin/documents/categories" },
+        { title: "Đồng bộ & Indexing", href: "/admin/documents/sync" },
         { title: "Lịch sử cập nhật", href: "/admin/documents/history" },
+      ],
+    },
+    {
+      id: "cms",
+      title: "Quản lý nội dung CMS",
+      icon: BookOpen,
+      hasDividerAbove: true,
+      children: [
+        { title: "Bài viết & Tin tức", href: "/admin/cms/news" },
+        { title: "Thông tin ngành học", href: "/admin/cms/programs" },
+        { title: "Thông báo tuyển sinh", href: "/admin/cms/announcements" },
+        { title: "Banner & Trang tĩnh", href: "/admin/cms/banners" },
       ],
     },
     {
@@ -88,6 +106,16 @@ export function AdminSidebar({
       ],
     },
     {
+      id: "rag_eval",
+      title: "Kiểm thử & Đánh giá RAG",
+      icon: FlaskConical,
+      children: [
+        { title: "Kiểm thử truy vấn", href: "/admin/rag-eval/test" },
+        { title: "Bộ câu hỏi benchmark", href: "/admin/rag-eval/benchmark" },
+        { title: "Báo cáo độ chính xác", href: "/admin/rag-eval/reports" },
+      ],
+    },
+    {
       id: "analytics",
       title: "Phân tích & Báo cáo",
       icon: PieChart,
@@ -100,7 +128,7 @@ export function AdminSidebar({
     {
       id: "ai_config",
       title: "Cấu hình AI",
-      icon: Sliders,
+      icon: SlidersHorizontal,
       children: [
         { title: "Mô hình & tham số", href: "/admin/ai-config" },
         { title: "Ngưỡng chuyển tư vấn", href: "/admin/ai-config/thresholds" },
@@ -110,13 +138,14 @@ export function AdminSidebar({
     {
       id: "system_log",
       title: "Nhật ký hệ thống",
-      icon: FileSpreadsheet,
+      icon: FileClock,
       children: [
         { title: "Lịch sử hoạt động", href: "/admin/logs/activities" },
         { title: "Thao tác quản trị", href: "/admin/logs/admin-actions" },
       ],
     },
   ];
+
 
   return (
     <aside
@@ -198,35 +227,52 @@ export function AdminSidebar({
         {navGroups.map((group) => {
           const Icon = group.icon;
           const isOpen = openGroups[group.id];
+          const isGroupActive = group.children?.some(
+            (child) => pathname === child.href || pathname.startsWith(child.href + "/")
+          );
 
           return (
-            <div key={group.id} className="space-y-1">
-              <button
-                type="button"
-                onClick={() => toggleGroup(group.id)}
-                className={cn(
-                  "w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left",
-                  "text-[#07164F] dark:text-[#F1F6FF] hover:bg-[#F0F5FD] dark:hover:bg-[#142640]"
-                )}
-                title={collapsed ? group.title : undefined}
-              >
-                <div className="flex items-center gap-3 overflow-hidden">
-                  <Icon className="w-4 h-4 text-[#667DAA] dark:text-[#9CB1D3] shrink-0" />
-                  {!collapsed && (
-                    <span className="truncate text-xs font-semibold">{group.title}</span>
+            <React.Fragment key={group.id}>
+              {group.hasDividerAbove && (
+                <div className="my-2 border-t border-[#E3ECF8] dark:border-[#1E3048]" />
+              )}
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.id)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left",
+                    isGroupActive
+                      ? "text-[#0866F5] dark:text-[#238BFF] font-semibold bg-[#F0F5FD]/60 dark:bg-[#142640]/50"
+                      : "text-[#07164F] dark:text-[#F1F6FF] hover:bg-[#F0F5FD] dark:hover:bg-[#142640]"
                   )}
-                </div>
-
-                {!collapsed && (
-                  <div className="text-[#667DAA] dark:text-[#9CB1D3] shrink-0">
-                    {isOpen ? (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5" />
+                  title={collapsed ? group.title : undefined}
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <Icon
+                      className={cn(
+                        "w-4 h-4 shrink-0 transition-colors",
+                        isGroupActive
+                          ? "text-[#0866F5] dark:text-[#238BFF]"
+                          : "text-[#667DAA] dark:text-[#9CB1D3]"
+                      )}
+                    />
+                    {!collapsed && (
+                      <span className="truncate text-xs font-semibold">{group.title}</span>
                     )}
                   </div>
-                )}
-              </button>
+
+                  {!collapsed && (
+                    <div className="text-[#667DAA] dark:text-[#9CB1D3] shrink-0">
+                      {isOpen ? (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      )}
+                    </div>
+                  )}
+                </button>
+
 
               {/* Sub-items */}
               {!collapsed && isOpen && group.children && (
@@ -251,8 +297,11 @@ export function AdminSidebar({
                 </div>
               )}
             </div>
-          );
-        })}
+          </React.Fragment>
+        );
+      })}
+
+
       </div>
 
       {/* 3. Bottom collapse toggle */}
