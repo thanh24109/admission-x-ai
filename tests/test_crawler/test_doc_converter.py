@@ -108,3 +108,86 @@ def test_converter_orchestration_mocked(tmp_path: Path):
 
     is_valid, _ = DocConverter.verify_docx(converted_docx)
     assert is_valid is True
+
+
+def test_convert_via_pure_python_fallback(tmp_path: Path):
+    converter = DocConverter(config=CrawlerConfig(output_dir=tmp_path))
+    input_doc = tmp_path / "test_legacy.doc"
+
+    # Construct synthetic OLE2 content with UTF-16LE text runs
+    text_content = "Cộng hòa Xã hội Chủ nghĩa Việt Nam\nThông tin tuyển sinh đại học".encode("utf-16le")
+    payload = OLE2_MAGIC + b"\x00" * 128 + text_content + b"\x00" * 128
+    input_doc.write_bytes(payload)
+
+    target_docx = tmp_path / "test_legacy.docx"
+    success, err = converter._convert_via_pure_python(input_doc, target_docx)
+
+    assert success is True
+    assert err == ""
+    assert target_docx.exists()
+
+    is_valid, val_err = DocConverter.verify_docx(target_docx)
+    assert is_valid is True, f"Validation failed: {val_err}"
+
+    # Verify document structure
+    doc = docx.Document(str(target_docx))
+    assert len(doc.paragraphs) > 0
+
+
+def test_convert_file_with_replace_original(tmp_path: Path):
+    converter = DocConverter(config=CrawlerConfig(output_dir=tmp_path))
+    input_doc = tmp_path / "replace_test.doc"
+    input_doc.write_bytes(OLE2_MAGIC + b"\x00" * 512)
+
+    def fake_convert_single(in_f, out_f):
+        d = docx.Document()
+        d.add_paragraph("Mock paragraph")
+        d.save(str(out_f))
+        return True, "mock_engine", ""
+
+    with patch.object(converter, "_convert_single", side_effect=fake_convert_single):
+        success, final_path, engine = converter.convert_file(
+            input_doc=input_doc,
+            replace_original=True,
+        )
+
+    assert success is True
+    assert engine == "mock_engine"
+    assert final_path.suffix == ".docx"
+    assert final_path.exists()
+    assert not input_doc.exists()  # Original .doc must be removed
+
+
+def test_storage_in_stream_doc_conversion(tmp_path: Path):
+    from scripts.crawler.storage import LocalStorageManager
+
+    config = CrawlerConfig(output_dir=tmp_path)
+    storage = LocalStorageManager(config=config)
+
+    content = OLE2_MAGIC + b"\x00" * 512
+    url = "https://tuyensinh.epu.edu.vn/Uploads/files/ts2026/phieu_dang_ky.doc"
+    sha = "test_sha_doc_123456789"
+
+    def fake_convert_bytes(content, filename, target_dir):
+        out_p = target_dir / filename
+        d = docx.Document()
+        d.add_paragraph("Directly converted in pipeline")
+        d.save(str(out_p))
+        return True, out_p, out_p.read_bytes(), "mock_word"
+
+    with patch("scripts.crawler.doc_converter.DocConverter.convert_doc_bytes", side_effect=fake_convert_bytes):
+        rel_path, is_new = storage.save_raw_file(
+            url=url,
+            content=content,
+            sha256_hash=sha,
+            doc_type="docx",
+        )
+
+    assert is_new is True
+    assert rel_path.endswith(".docx")
+    assert not rel_path.endswith(".doc")
+    full_path = tmp_path / rel_path
+    assert full_path.exists()
+    is_valid, _ = DocConverter.verify_docx(full_path)
+    assert is_valid is True
+

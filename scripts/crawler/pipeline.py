@@ -272,6 +272,8 @@ class CrawlerPipeline:
             if doc_type == DocumentType.UNKNOWN:
                 if "application/pdf" in res.content_type:
                     doc_type = DocumentType.PDF
+                elif "application/msword" in res.content_type or "wordprocessingml" in res.content_type:
+                    doc_type = DocumentType.DOCX
                 elif "image/" in res.content_type:
                     doc_type = DocumentType.IMAGE
                 else:

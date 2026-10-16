@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -113,6 +114,57 @@ class LocalStorageManager:
             self.url_to_hash[url] = sha256_hash
             return existing_rel_path, False
 
+        # In-stream automatic conversion for legacy Word .doc to .docx
+        if doc_type == "docx":
+            from scripts.crawler.doc_detector import DocFormatDetector
+
+            parsed_path = urlparse(url).path.lower()
+            is_legacy = DocFormatDetector.is_legacy_doc(content) or parsed_path.endswith(".doc")
+            if is_legacy:
+                from scripts.crawler.doc_converter import DocConverter
+
+                converter = DocConverter(config=self.config)
+
+                if custom_filename:
+                    doc_base_name = custom_filename
+                else:
+                    path_part = Path(urlparse(url).path).name or "document.docx"
+                    doc_base_name = sanitize_filename(path_part)
+
+                if doc_base_name.lower().endswith(".doc"):
+                    doc_base_name = doc_base_name[:-4] + ".docx"
+                elif not doc_base_name.lower().endswith(".docx"):
+                    doc_base_name += ".docx"
+
+                short_h = sha256_hash[:8]
+                final_docx_name = f"{short_h}_{doc_base_name}"
+                final_docx_path = self.config.docx_dir / final_docx_name
+
+                # If already converted and exists, return existing
+                if final_docx_path.exists():
+                    conv_hash = hashlib.sha256(final_docx_path.read_bytes()).hexdigest()
+                    rel_p = f"raw/docx/{final_docx_name}"
+                    self.hash_to_path[sha256_hash] = rel_p
+                    self.hash_to_path[conv_hash] = rel_p
+                    self.url_to_hash[url] = conv_hash
+                    return rel_p, False
+
+                # Convert directly to .docx
+                success, final_path, conv_bytes, engine = converter.convert_doc_bytes(
+                    content=content,
+                    filename=final_docx_name,
+                    target_dir=self.config.docx_dir,
+                )
+                if success and final_path.exists() and conv_bytes:
+                    conv_hash = hashlib.sha256(conv_bytes).hexdigest()
+                    rel_p = f"raw/docx/{final_path.name}"
+                    self.hash_to_path[sha256_hash] = rel_p
+                    self.hash_to_path[conv_hash] = rel_p
+                    self.url_to_hash[url] = conv_hash
+                    logger.info("Directly converted crawled DOC to DOCX: %s via %s", final_path.name, engine)
+                    return rel_p, True
+                logger.warning("Direct conversion of DOC failed; proceeding with fallback storage")
+
         # Pick directory based on doc_type
         if doc_type == "pdf":
             target_dir = self.config.pdf_dir
@@ -139,7 +191,14 @@ class LocalStorageManager:
             path_part = Path(parsed.path).name or "index"
             base_name = sanitize_filename(path_part)
 
-        if not base_name.endswith(default_ext) and not any(base_name.endswith(ext) for ext in [".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg", ".webp", ".html"]):
+        # Ensure docx files never have .doc extension
+        if doc_type == "docx" and base_name.lower().endswith(".doc"):
+            base_name = base_name[:-4] + ".docx"
+
+        if not base_name.endswith(default_ext) and not any(
+            base_name.endswith(ext)
+            for ext in [".pdf", ".docx", ".png", ".jpg", ".jpeg", ".webp", ".html"]
+        ):
             base_name += default_ext
 
         # Prefix with short hash for collision safety and clean sorting

@@ -124,15 +124,19 @@ def cmd_retry_failed(args: argparse.Namespace) -> None:
 
 
 def cmd_convert_doc(args: argparse.Namespace) -> None:
-    """Audits and converts legacy DOC files to modern DOCX using LibreOffice headless."""
+    """Audits and converts legacy DOC files to modern DOCX using Microsoft Word / LibreOffice / Pure Python."""
     from scripts.crawler.doc_converter import DocConverter
 
     config = CrawlerConfig(output_dir=Path(args.output_dir) if args.output_dir else None)
     converter = DocConverter(config=config)
 
+    engine_desc = "Microsoft Word COM (Native Windows)" if sys.platform == "win32" else (
+        f"LibreOffice ({converter._soffice_path})" if converter._soffice_path else "Pure Python Fallback"
+    )
+
     print("=" * 80)
     print("EPU LEGACY DOC TO DOCX CONVERTER")
-    print(f"LibreOffice Path: {converter._soffice_path or 'Not found (will use Word fallback)'}")
+    print(f"Primary Engine:   {engine_desc}")
     print(f"Dry Run:          {args.dry_run}")
     print(f"Retry Failed:     {args.retry_failed}")
     print(f"Force Overwrite:  {args.force}")

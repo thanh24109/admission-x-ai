@@ -200,11 +200,91 @@ class DocConverter:
 
         return report_data
 
-    def _convert_single(self, input_doc: Path, target_docx: Path) -> tuple[bool, str, str]:
-        """Converts a single legacy DOC file using LibreOffice (primary) or Word COM (fallback)."""
-        soffice = self.find_libreoffice_executable()
+    def convert_file(
+        self,
+        input_doc: Path,
+        target_docx: Path | None = None,
+        replace_original: bool = False,
+    ) -> tuple[bool, Path, str]:
+        """Converts a single legacy .doc file to a validated .docx file.
+        Returns (success, final_docx_path, engine_used).
+        """
+        if not input_doc.exists():
+            return False, input_doc, "Input file does not exist"
 
-        # Primary: LibreOffice headless conversion
+        out_docx = target_docx or input_doc.with_suffix(".docx")
+        out_docx.parent.mkdir(parents=True, exist_ok=True)
+
+        success, engine, err = self._convert_single(input_doc, out_docx)
+        if not success:
+            return False, out_docx, err
+
+        # Verify generated DOCX package
+        is_valid, val_err = self.verify_docx(out_docx)
+        if not is_valid:
+            if out_docx.exists():
+                out_docx.unlink()
+            return False, out_docx, f"DOCX verification failed: {val_err}"
+
+        if replace_original and input_doc.exists() and input_doc != out_docx:
+            try:
+                input_doc.unlink()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Could not delete original .doc after conversion: %s", e)
+
+        return True, out_docx, engine
+
+    def convert_doc_bytes(
+        self,
+        content: bytes,
+        filename: str,
+        target_dir: Path,
+    ) -> tuple[bool, Path, bytes, str]:
+        """Converts raw .doc bytes directly to a validated .docx file on disk.
+        Returns (success, docx_path, docx_bytes, engine_used).
+        """
+        stem = Path(filename).stem
+        target_dir.mkdir(parents=True, exist_ok=True)
+        tmp_doc = target_dir / f"{stem}_tmp.doc"
+        target_docx = target_dir / f"{stem}.docx"
+
+        try:
+            with open(tmp_doc, "wb") as f:
+                f.write(content)
+            success, final_path, engine = self.convert_file(
+                input_doc=tmp_doc,
+                target_docx=target_docx,
+                replace_original=True,
+            )
+            if success and final_path.exists():
+                docx_bytes = final_path.read_bytes()
+                return True, final_path, docx_bytes, engine
+            return False, target_docx, b"", engine
+        finally:
+            if tmp_doc.exists():
+                try:
+                    tmp_doc.unlink()
+                except OSError as e:
+                    logger.debug("Could not remove temp doc file: %s", e)
+
+    def _convert_single(self, input_doc: Path, target_docx: Path) -> tuple[bool, str, str]:
+        """Converts a single legacy DOC file to DOCX using the best available engine.
+
+        Priority:
+        1. Native Microsoft Word COM (on Windows, standard high-fidelity without LibreOffice)
+        2. LibreOffice headless (cross-platform high-fidelity if installed)
+        3. Pure-Python fallback (zero-dependency, always succeeds on any OS)
+        """
+        word_err = ""
+        # 1. Primary on Windows: Microsoft Word COM automation
+        if os.name == "nt":
+            word_success, word_err = self._convert_via_word_com(input_doc, target_docx)
+            if word_success and target_docx.exists():
+                return True, "microsoft_word", ""
+
+        # 2. Secondary: Headless LibreOffice conversion
+        soffice = self.find_libreoffice_executable()
+        lo_err = ""
         if soffice and soffice.exists():
             try:
                 cmd = [
@@ -213,7 +293,7 @@ class DocConverter:
                     "--convert-to",
                     "docx",
                     "--outdir",
-                    str(self.config.converted_docx_dir),
+                    str(target_docx.parent),
                     str(input_doc),
                 ]
                 logger.info("Executing LibreOffice conversion: %s", " ".join(cmd))
@@ -225,21 +305,71 @@ class DocConverter:
                     timeout=90,
                     check=False,
                 )
+                expected_lo_out = target_docx.parent / f"{input_doc.stem}.docx"
+                if expected_lo_out.exists() and expected_lo_out != target_docx:
+                    expected_lo_out.replace(target_docx)
                 if res.returncode == 0 and target_docx.exists():
                     return True, "libreoffice", ""
+                lo_err = res.stderr
                 logger.warning("LibreOffice returned code %d: %s", res.returncode, res.stderr)
             except Exception as e:  # noqa: BLE001
-                logger.warning("LibreOffice conversion failed with exception: %s", e)
+                lo_err = str(e)
+                logger.warning("LibreOffice conversion failed: %s", e)
 
-        # Fallback: Microsoft Word COM automation via PowerShell
-        word_success, word_err = self._convert_via_word_com(input_doc, target_docx)
-        if word_success:
-            return True, "microsoft_word", ""
+        # 3. Tertiary: Zero-dependency pure-Python fallback (extracts text stream into clean DOCX)
+        py_success, py_err = self._convert_via_pure_python(input_doc, target_docx)
+        if py_success and target_docx.exists():
+            return True, "pure_python", ""
 
-        return False, "none", f"Conversion failed. LibreOffice soffice: {soffice}, Word error: {word_err}"
+        return (
+            False,
+            "none",
+            f"All conversion engines failed. Word: {word_err}; LibreOffice: {lo_err}; PurePython: {py_err}",
+        )
+
+    def _convert_via_pure_python(self, input_doc: Path, target_docx: Path) -> tuple[bool, str]:
+        """Pure-Python fallback converter that extracts text blocks from legacy Word binary stream
+        and generates a clean, valid DOCX using python-docx without requiring Office or LibreOffice.
+        """
+        try:
+            content = input_doc.read_bytes()
+            import re
+
+            # Extract UTF-16LE and ASCII text runs from OLE2 binary stream
+            uni_matches = re.findall(rb"(?:[\x20-\x7e\xa0-\xff]\x00){3,}", content)
+            paragraphs: list[str] = []
+            for m in uni_matches:
+                try:
+                    t = m.decode("utf-16le").strip()
+                    if (
+                        t
+                        and len(t) > 2
+                        and not t.startswith("Normal.")
+                        and not t.startswith("Default")
+                    ):
+                        paragraphs.append(t)
+                except (UnicodeDecodeError, ValueError):
+                    continue
+
+            # Deduplicate sequential duplicate lines
+            cleaned_paragraphs: list[str] = []
+            last_p = ""
+            for p in paragraphs:
+                if p != last_p:
+                    cleaned_paragraphs.append(p)
+                    last_p = p
+
+            doc = docx.Document()
+            doc.add_heading(input_doc.stem, level=1)
+            for p in cleaned_paragraphs:
+                doc.add_paragraph(p)
+            doc.save(str(target_docx))
+            return True, ""
+        except Exception as e:  # noqa: BLE001
+            return False, f"Pure Python conversion error: {e}"
 
     def _convert_via_word_com(self, input_doc: Path, target_docx: Path) -> tuple[bool, str]:
-        """Fallback converter using native Microsoft Word COM automation via PowerShell."""
+        """Converter using native Microsoft Word COM automation via PowerShell."""
         in_p = str(input_doc.resolve()).replace("'", "''")
         out_p = str(target_docx.resolve()).replace("'", "''")
 

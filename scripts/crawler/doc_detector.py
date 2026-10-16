@@ -43,6 +43,24 @@ class DocInspectionResult(BaseModel):
 class DocFormatDetector:
     """Detects and classifies document formats based on magic bytes, file structure, and integrity checks."""
 
+    @classmethod
+    def is_legacy_doc(cls, content: bytes) -> bool:
+        """Returns True if the content starts with the OLE2 compound document magic bytes."""
+        return len(content) >= 8 and content.startswith(OLE2_MAGIC)
+
+    @classmethod
+    def is_valid_docx(cls, content: bytes) -> bool:
+        """Returns True if the content starts with ZIP magic and contains OOXML document indicators."""
+        if len(content) < 4 or not content.startswith(ZIP_MAGIC):
+            return False
+        import io
+        try:
+            with zipfile.ZipFile(io.BytesIO(content), "r") as zf:
+                names = zf.namelist()
+                return "[Content_Types].xml" in names or any("word/" in n for n in names)
+        except (zipfile.BadZipFile, OSError):
+            return False
+
     @staticmethod
     def inspect(file_path: Path | str) -> DocInspectionResult:
         path = Path(file_path)
