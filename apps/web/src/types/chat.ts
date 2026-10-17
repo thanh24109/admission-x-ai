@@ -1,5 +1,17 @@
 export type ChatRole = "user" | "assistant" | "system";
 
+export type CitationProvenanceStatus =
+  | "verified_backend"
+  | "unverified_allowlisted"
+  | "untrusted";
+
+export interface CitationProvenanceMetadata {
+  status: CitationProvenanceStatus;
+  documentId?: string;
+  sourceTier?: "official_epu" | "secondary_gov" | "general";
+  verificationHash?: string;
+}
+
 export interface ChatCitation {
   id: string;
   title: string;
@@ -8,7 +20,19 @@ export interface ChatCitation {
   fileType?: "pdf" | "docx" | "url" | "web";
   fileSize?: string;
   url?: string;
+  /**
+   * @deprecated Matching an allowlisted URL does NOT mean the citation is verified.
+   * Kept optional for legacy consumers. Do not rely on this as proof of verification.
+   */
   isVerifiedDestination?: boolean;
+  /**
+   * Whether the URL destination matches the approved navigation allowlist.
+   */
+  isAllowedDestination?: boolean;
+  /**
+   * Structured future integration boundary for backend-verified citation records.
+   */
+  provenance?: CitationProvenanceMetadata;
 }
 
 export interface ChatMessage {

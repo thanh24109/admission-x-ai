@@ -614,3 +614,132 @@ All checks passed!
   - Không bắt đầu Task 5.
   - Dừng lại sau Task 4.2 và chờ kiểm duyệt độc lập (Await independent review).
 
+---
+
+# TASK 4.3 — BÁO CÁO TÁCH BIỆT NGUỒN GỐC TRÍCH DẪN & RANH GIỚI TIN CẬY (FINAL CITATION PROVENANCE SEPARATION)
+
+## 1. Bối cảnh & Mục tiêu Task 4.3
+
+Trong đợt rà soát Task 4.2 (Reviewed commit `7c7342eca3452540ccc0cdda4a86dbe02ec66cf5`), một vấn đề ranh giới tin cậy (trust boundary) còn tồn tại ở tầng frontend:
+- **Hiện tượng**: Hàm phân tích trích dẫn frontend trước đây thiết lập `isVerifiedDestination = true` mỗi khi URL trích dẫn thuộc danh sách allowlist (tên miền `epu.edu.vn`, `moet.gov.vn`, hoặc đường dẫn tương đối được phê duyệt).
+- **Hệ quả rủi ro**: Việc một URL thuộc tên miền hợp lệ chỉ có nghĩa đây là điểm đến điều hướng được phép (allowed navigation destination), **không đồng nghĩa** với việc tài liệu hay liên kết đó đã được hệ thống thẩm định chứng cứ, kiểm tra hash hoặc đối chiếu nội dung tuyển sinh chính thức (evidence verification).
+- **Mục tiêu Task 4.3**: Tách bạch triệt để ranh giới cho phép điều hướng (`isAllowedDocumentDestination`) khỏi trạng thái xác thực nguồn gốc trích dẫn thực tế (`isBackendVerifiedCitation`), không tin cậy boolean thô từ API payload, phòng chống triệt để tấn công directory traversal dạng mã hóa (`%2e%2e`, `%252e%252e`, `%5c`, `%00`), và bổ sung suite kiểm thử hồi quy 100% tự động.
+
+---
+
+## 2. Các Thay đổi Kỹ thuật Thực tế
+
+### 2.1. Cấu trúc dữ liệu & Ranh giới tương lai (`apps/web/src/types/chat.ts`)
+- Bổ sung type `CitationProvenanceStatus = "verified_backend" | "unverified_allowlisted" | "untrusted"`.
+- Bổ sung interface `CitationProvenanceMetadata` chứa `status`, `documentId`, `sourceTier`, `verificationHash`.
+- Cập nhật interface `ChatCitation`:
+  - `isAllowedDestination?: boolean`: Biểu thị URL trích dẫn thuộc danh sách điều hướng được phê duyệt.
+  - `isVerifiedDestination?: boolean`: Đánh dấu `@deprecated` cho client cũ, chỉ mang giá trị `true` khi có xác thực backend hợp lệ; không bao giờ tự động `true` chỉ vì URL khớp allowlist.
+  - `provenance?: CitationProvenanceMetadata`: Ranh giới dữ liệu chuẩn hóa cho các phase tích hợp tiếp theo.
+
+### 2.2. Kiểm tra Directory Traversal & Canonicalization Bypass (`apps/web/src/lib/chatClient.ts`)
+- Xây dựng hàm `hasTraversalOrCanonicalizationBypass(raw: string): boolean`:
+  - Kiểm tra chuỗi thô: `..`, `\`, `\0`.
+  - Kiểm tra các mẫu ký tự mã hóa URL phổ biến: `%2e%2e`, `%2e.`, `.%2e`, `%5c`, `%00`, `..%2f`.
+  - Thực hiện giải mã URL đơn cấp và đệ quy hai cấp (`decodeURIComponent`) để triệt tiêu các kỹ thuật bypass bypass mã hóa kép như `%252e%252e`, `%255c`. Bất kỳ lỗi parse URL encoding nào đều lập tức bị xem là bypass attempt và từ chối.
+- Cập nhật `isValidUrlSyntax()` và `isAllowedNavigationUrl()` để lập tức từ chối mọi chuỗi chứa mẫu traversal.
+
+### 2.3. Tách biệt Allowlisting và Authoritative Verification (`apps/web/src/lib/chatClient.ts`)
+- Định nghĩa hàm `isAllowedDocumentDestination(rawUrl: string): boolean`: Chỉ kiểm tra tính an toàn điều hướng (HTTPS bắt buộc, cổng chuẩn 443, tên miền chính thức EPU/MOET, tiền tố tương đối hợp lệ, không traversal).
+- Xây dựng hàm `isBackendVerifiedCitation(rawRecord: unknown): boolean`:
+  - Không tin cậy cờ boolean thô từ payload API (`record.isVerifiedDestination: true` bị phớt lờ hoàn toàn).
+  - Yêu cầu cấu trúc `provenance` hợp lệ từ backend với `status === "verified_backend"`, `documentId` không rỗng và `sourceTier === "official_epu"`.
+- Chuẩn hóa trong `formatSafeCitation()`:
+  - Nếu URL thuộc allowlist nhưng chưa có bằng chứng backend: gán `isAllowedDestination: true`, `isVerifiedDestination: false`, `provenance: { status: "unverified_allowlisted" }`.
+  - Nếu phát hiện traversal hoặc URL không hợp lệ: loại bỏ hoàn toàn `url = undefined`, `isAllowedDestination: false`, `isVerifiedDestination: false`.
+
+### 2.4. Khắc phục Component Hiển thị (`apps/web/src/components/chat/ChatCitationCard.tsx`)
+- Import và sử dụng trực tiếp `isAllowedDocumentDestination(citation.url)` cho logic click xem tài liệu.
+- Giữ nguyên trải nghiệm người dùng ("Xem tài liệu" cho các liên kết điều hướng an toàn) mà không tuyên bố sai lệch rằng tài liệu đã qua thẩm định nội dung, đảm bảo không bịa đặt nhãn trang, dung lượng hay nguồn gốc.
+
+---
+
+## 3. Bộ Kiểm Thử Hồi Quy Mới (Regression Tests)
+
+Đã bổ sung các ca kiểm thử từ 25 đến 29 vào `apps/web/tests/chatClient.test.ts`:
+1. **Test 25**: Phân biệt điểm đến chính thức hợp lệ chưa qua thẩm định chứng cứ (`isAllowedDestination === true`, `isVerifiedDestination === false`, `provenance.status === 'unverified_allowlisted'`).
+2. **Test 26**: Từ chối cờ boolean thô `isVerifiedDestination=true` từ payload không tin cậy ngay cả trên tên miền chính thức.
+3. **Test 27**: Xác thực trích dẫn thành công khi có hợp đồng chứng cứ có cấu trúc từ backend (`isBackendVerifiedCitation === true`, `isVerifiedDestination === true`, `provenance.status === 'verified_backend'`).
+4. **Test 28**: Từ chối toàn diện các dạng mã hóa traversal (`%2e%2e`, `%2e%2e%2f`, `%252e%252e`, `%5c`, `%00`, `..%2f`) trên cả đường dẫn tương đối và URL tuyệt đối.
+5. **Test 29**: Đảm bảo hành vi điều hướng an toàn cho các URL đích hợp lệ mà không tạo ra các tuyên bố thẩm định sai sự thật.
+
+---
+
+## 4. Kết Quả Xác Nhận Thực Tế (Execution Logs)
+
+```bash
+# 1. Backend Pytest & Agent-Harness (181 tests)
+& "E:\admission-x-ai\.venv\Scripts\python.exe" -m pytest apps/api/tests evals/harness/tests
+============================ 181 passed in 10.21s =============================
+Agent-Harness: 7 passed, 0 failed
+
+# 2. Backend Ruff Linter
+& "E:\admission-x-ai\.venv\Scripts\python.exe" -m ruff check apps/api
+All checks passed!
+
+# 3. Frontend Unit Tests (29 tests)
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web test
+▶ Frontend Chat API Contract & Error Handling Tests
+  ✔ 1. Successfully parses authentic backend response (2.55ms)
+  ✔ 2. Handles backend offline / connection refused with safe static error message (1.25ms)
+  ✔ 3. Handles backend HTTP error without fabricating admissions claims (0.40ms)
+  ✔ 4. Handles backend timeout safely (0.17ms)
+  ✔ 5. Throws on malformed JSON / non-object payload (0.58ms)
+  ✔ 6. Throws on missing required 'answer' field (0.21ms)
+  ✔ 7. Safely parses responses with empty citations list (0.18ms)
+  ✔ 8. Never defaults missing citation source to 'Trường Đại học Điện lực (EPU)' (0.23ms)
+  ✔ 9. Never defaults missing document type to PDF (0.25ms)
+  ✔ 10. Rejects invalid and malformed URLs (0.62ms)
+  ✔ 11. Strictly rejects protocol-relative URLs (//evil.com) (0.30ms)
+  ✔ 12. Rejects unsafe protocols (javascript, data, vbscript, file) (0.24ms)
+  ✔ 13. Separates URL syntax validation from official provenance verification (0.36ms)
+  ✔ 14. Guarantees no mock admissions answers under failure (0.48ms)
+  ✔ 15. Does not manufacture fake page labels or file sizes (0.19ms)
+  ✔ 16. New conversation during request invalidates in-flight responses (0.14ms)
+  ✔ 17. Retry pattern resends without duplicating user messages in thread (0.17ms)
+  ✔ 18. No production mock document metadata in chatRelatedDocuments (0.10ms)
+  ✔ 19. Strictly rejects backslash-based URL normalization bypasses (0.12ms)
+  ✔ 20. Prohibits arbitrary internal routes from being treated as approved document links (0.21ms)
+  ✔ 21. Enforces production-safe HTTPS for external document links (rejects plain HTTP) (0.18ms)
+  ✔ 22. Prohibits localhost/127.0.0.1 exceptions from authorizing production document links (0.15ms)
+  ✔ 23. Never trusts raw client-facing boolean (isVerifiedDestination) as proof of backend approval (0.19ms)
+  ✔ 24. Rejects directory traversal paths in citations (0.14ms)
+  ✔ 25. Distinguishes allowed official destination from evidence verification (0.17ms)
+  ✔ 26. Rejects raw payload boolean 'isVerifiedDestination=true' without authentic backend verification (0.12ms)
+  ✔ 27. Authoritative backend contract provenance verifies citation (0.16ms)
+  ✔ 28. Rejects encoded traversal (%2e%2e, %252e%252e, %5c, %00, ..%2f) (0.21ms)
+  ✔ 29. Preserves safe navigation for valid destinations without false verification claims (0.40ms)
+✔ Frontend Chat API Contract & Error Handling Tests (13.91ms)
+ℹ tests 29 | pass 29 | fail 0
+
+# 4. Frontend ESLint
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web run lint
+✔ No ESLint warnings or errors
+
+# 5. Frontend Production Build
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web run build
+✓ Compiled successfully in 21.0s
+✓ Linting and checking validity of types
+✓ Collecting page data
+✓ Generating static pages (131/131)
+✓ Finalizing page optimization
+```
+
+---
+
+## 5. Kết luận & Cam kết Phạm vi Task 4.3
+
+- **Nhánh thực hiện:** `feat/phase-1-task-4-decision-safe-fallback`
+- **Commit SHA reviewed:** `7c7342eca3452540ccc0cdda4a86dbe02ec66cf5`
+- **Commit Message chuẩn:** `fix(web): separate citation provenance from destination allowlisting`
+- **Phạm vi bảo toàn:**
+  - Không thay đổi thiết kế Task 4.
+  - Không thêm production RAG, database queries hay API endpoints mới.
+  - Giữ vững ranh giới Phase 1 (không merge vào `main`, không bắt đầu Task 5).
+
+

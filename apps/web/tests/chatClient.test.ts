@@ -14,8 +14,11 @@ import {
   createSafeErrorAssistantMessage,
   isValidUrlSyntax,
   isAllowedNavigationUrl,
+  isAllowedDocumentDestination,
   isApprovedDocumentDestination,
   isOfficialProvenanceUrl,
+  hasTraversalOrCanonicalizationBypass,
+  isBackendVerifiedCitation,
   SAFE_STATIC_ERROR_MESSAGE,
 } from "../src/lib/chatClient.ts";
 import {
@@ -343,4 +346,131 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     assert.equal(isApprovedDocumentDestination("https://tuyensinh.epu.edu.vn/post/../../admin"), false);
     assert.equal(isAllowedNavigationUrl("/post/../../admin"), false);
   });
+
+  // 25. Valid official-domain URLs that have not been evidence-verified
+  it("25. Distinguishes allowed official destination from evidence verification", () => {
+    const unverifiedOfficialCitation = {
+      title: "Thông báo tuyển sinh 2025",
+      source: "Phòng Tuyển sinh EPU",
+      url: "https://tuyensinh.epu.edu.vn/post/thong-bao-2025.pdf",
+    };
+
+    const formatted = formatSafeCitation(unverifiedOfficialCitation, 0);
+    assert.notEqual(formatted, null);
+    assert.equal(formatted?.url, "https://tuyensinh.epu.edu.vn/post/thong-bao-2025.pdf");
+    // Allowed for safe client navigation
+    assert.equal(formatted?.isAllowedDestination, true);
+    assert.equal(isAllowedDocumentDestination(formatted?.url || ""), true);
+    // CRITICAL: Must NEVER claim evidence verification solely due to allowlisted domain!
+    assert.equal(formatted?.isVerifiedDestination, false);
+    assert.equal(formatted?.provenance?.status, "unverified_allowlisted");
+  });
+
+  // 26. Raw payload boolean is ignored even on official domains
+  it("26. Rejects raw payload boolean 'isVerifiedDestination=true' without authentic backend verification", () => {
+    const deceptiveOfficialCitation = {
+      title: "Văn bản chưa thẩm định",
+      source: "Trường Đại học Điện lực",
+      url: "https://epu.edu.vn/post/van-ban-moi",
+      isVerifiedDestination: true, // Attacker or untrusted API payload claims true
+    };
+
+    const formatted = formatSafeCitation(deceptiveOfficialCitation, 0);
+    assert.notEqual(formatted, null);
+    assert.equal(formatted?.isAllowedDestination, true);
+    // Raw boolean is ignored: remains false because authoritative backend provenance is absent
+    assert.equal(formatted?.isVerifiedDestination, false);
+    assert.equal(formatted?.provenance?.status, "unverified_allowlisted");
+  });
+
+  // 27. Authoritative backend contract provenance unlocks verified status
+  it("27. Authoritative backend contract provenance verifies citation", () => {
+    const verifiedBackendCitation = {
+      title: "Đề án tuyển sinh trình độ đại học năm 2025",
+      source: "Hội đồng Tuyển sinh EPU",
+      url: "https://tuyensinh.epu.edu.vn/de-an-2025.pdf",
+      provenance: {
+        status: "verified_backend" as const,
+        documentId: "epu-dean-2025-v1",
+        sourceTier: "official_epu" as const,
+      },
+    };
+
+    assert.equal(isBackendVerifiedCitation(verifiedBackendCitation), true);
+
+    const formatted = formatSafeCitation(verifiedBackendCitation, 0);
+    assert.notEqual(formatted, null);
+    assert.equal(formatted?.isAllowedDestination, true);
+    assert.equal(formatted?.isVerifiedDestination, true);
+    assert.equal(formatted?.provenance?.status, "verified_backend");
+    assert.equal(formatted?.provenance?.documentId, "epu-dean-2025-v1");
+    assert.equal(formatted?.provenance?.sourceTier, "official_epu");
+  });
+
+  // 28. Rejects encoded traversal and canonicalization bypass cases
+  it("28. Rejects encoded traversal (%2e%2e, %252e%252e, %5c, %00, ..%2f)", () => {
+    const maliciousPaths = [
+      "/post/%2e%2e/admin",
+      "/post/%2e%2e%2fadmin",
+      "/tuyensinh/%252e%252e/config",
+      "/candidate/documents/%5c..%5cadmin",
+      "/post/..%2fadmin",
+      "/post/%00/admin",
+      "https://tuyensinh.epu.edu.vn/post/%2e%2e/admin",
+      "https://tuyensinh.epu.edu.vn/post/%252e%252e/admin",
+      "https://epu.edu.vn/post/%5c..%5csecret",
+      "https://epu.edu.vn/post/%00admin",
+    ];
+
+    for (const path of maliciousPaths) {
+      assert.equal(hasTraversalOrCanonicalizationBypass(path), true, `Failed detecting bypass in: ${path}`);
+      assert.equal(isValidUrlSyntax(path), false, `isValidUrlSyntax should reject: ${path}`);
+      assert.equal(isAllowedDocumentDestination(path), false, `isAllowedDocumentDestination should reject: ${path}`);
+      assert.equal(isAllowedNavigationUrl(path), false, `isAllowedNavigationUrl should reject: ${path}`);
+
+      const formatted = formatSafeCitation(
+        {
+          title: "Tài liệu bypass",
+          source: "EPU",
+          url: path,
+        },
+        0
+      );
+      assert.equal(formatted?.url, undefined, `URL should be sanitized to undefined for: ${path}`);
+      assert.equal(formatted?.isAllowedDestination, false);
+      assert.equal(formatted?.isVerifiedDestination, false);
+    }
+  });
+
+  // 29. Preserves safe navigation behavior without claiming verification
+  it("29. Preserves safe navigation for valid destinations without false verification claims", () => {
+    const validNavPaths = [
+      "/post/thong-tin-tuyen-sinh",
+      "/tuyensinh/huong-dan",
+      "/candidate/documents/mau-don",
+      "https://tuyensinh.epu.edu.vn/thong-bao",
+      "https://moet.gov.vn/quy-che-2025",
+    ];
+
+    for (const path of validNavPaths) {
+      assert.equal(hasTraversalOrCanonicalizationBypass(path), false);
+      assert.equal(isValidUrlSyntax(path), true);
+      assert.equal(isAllowedDocumentDestination(path), true);
+      assert.equal(isAllowedNavigationUrl(path), true);
+
+      const formatted = formatSafeCitation(
+        {
+          title: "Tài liệu hợp lệ",
+          source: "EPU",
+          url: path,
+        },
+        0
+      );
+      assert.equal(formatted?.url, path);
+      assert.equal(formatted?.isAllowedDestination, true);
+      // Navigation is allowed, but evidence verification is NOT claimed
+      assert.equal(formatted?.isVerifiedDestination, false);
+    }
+  });
 });
+
