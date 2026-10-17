@@ -124,38 +124,56 @@ export function ChatContextSidebar({
           </Link>
         </div>
 
-        {/* Document items */}
-        <div className="mt-3 space-y-2.5">
-          {chatRelatedDocuments.map((doc) => {
-            const isPdf = doc.fileType === "pdf";
+        {/* Document items or neutral empty state */}
+        {chatRelatedDocuments.length > 0 ? (
+          <div className="mt-3 space-y-2.5">
+            {chatRelatedDocuments.map((doc) => {
+              const isPdf = doc.fileType === "pdf";
+              const isDoc = doc.fileType === "docx";
+              const subMeta = doc.fileSize
+                ? `${doc.source} • ${doc.fileSize}`
+                : doc.source;
 
-            return (
-              <Link
-                key={doc.id}
-                href={doc.downloadUrl || "/tuyensinh"}
-                className="flex items-center gap-3 p-2 rounded-xl hover:bg-[#F4F8FD] dark:hover:bg-[#12223C] transition-colors group"
-              >
-                {/* File Badge */}
-                <div
-                  className={`flex items-center justify-center w-7 h-7 rounded-md font-bold text-[9px] uppercase text-white shrink-0 shadow-2xs ${
-                    isPdf ? "bg-[#EF4444]" : "bg-[#2563EB]"
-                  }`}
+              return (
+                <Link
+                  key={doc.id}
+                  href={doc.downloadUrl || "/candidate/documents"}
+                  className="flex items-center gap-3 p-2 rounded-xl hover:bg-[#F4F8FD] dark:hover:bg-[#12223C] transition-colors group"
                 >
-                  {isPdf ? "PDF" : "DOC"}
-                </div>
+                  {/* File Badge: Only show PDF or DOC if verified; otherwise neutral FileText */}
+                  {isPdf ? (
+                    <div className="flex items-center justify-center w-7 h-7 rounded-md font-bold text-[9px] uppercase text-white bg-[#EF4444] shrink-0 shadow-2xs">
+                      PDF
+                    </div>
+                  ) : isDoc ? (
+                    <div className="flex items-center justify-center w-7 h-7 rounded-md font-bold text-[9px] uppercase text-white bg-[#2563EB] shrink-0 shadow-2xs">
+                      DOC
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center w-7 h-7 rounded-md bg-slate-100 dark:bg-slate-800 text-[#0866D9] dark:text-[#3B82F6] shrink-0 shadow-2xs">
+                      <FileText className="w-3.5 h-3.5" />
+                    </div>
+                  )}
 
-                <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-xs font-semibold text-[#0B1D49] dark:text-white truncate group-hover:text-[#0866D9] transition-colors">
-                    {doc.title}
-                  </span>
-                  <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
-                    {doc.source} • {doc.fileSize}
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <span className="text-xs font-semibold text-[#0B1D49] dark:text-white truncate group-hover:text-[#0866D9] transition-colors">
+                      {doc.title}
+                    </span>
+                    <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
+                      {subMeta}
+                    </span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 py-4 text-center">
+            <p className="text-xs text-[#64748B] dark:text-[#94A3B8]">
+              Chưa có tài liệu đính kèm cho phiên trò chuyện này.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ========================================================= */}

@@ -3,6 +3,8 @@
 Follows docs/ai/phase-1/response-contract.md and Task 4 Section 7.
 """
 
+import pytest
+
 from app.ai.decision.mappings import assemble_response_envelope
 from app.ai.decision.models import DecisionAction, DecisionResult
 from app.schemas.citation import CitationRecord, SourceTier
@@ -137,3 +139,22 @@ def test_assemble_handover_offered_never_has_ticket():
     assert envelope.handover.offered is True
     assert envelope.handover.requested is True
     assert envelope.handover.ticket_id is None
+
+
+def test_no_fabricated_supported_answer_text_when_verified_answer_absent():
+    """Assembling an ANSWERED or PARTIAL envelope without verified_answer or safe_response_text raises ValueError."""
+    decision = DecisionResult(
+        decision=DecisionAction.ANSWER,
+        answer_status=AnswerStatus.ANSWERED,
+        evidence_status=EvidenceStatus.SUPPORTED,
+        source_mode=SourceMode.OFFICIAL_EPU,
+        reason_code="OFFICIAL_EVIDENCE_VERIFIED",
+        is_safe_to_answer=True,
+    )
+
+    with pytest.raises(ValueError, match="Cannot assemble an ANSWERED or PARTIAL response envelope"):
+        assemble_response_envelope(
+            decision,
+            response_id="resp-unverified-01",
+            verified_answer=None,  # Missing verified answer!
+        )

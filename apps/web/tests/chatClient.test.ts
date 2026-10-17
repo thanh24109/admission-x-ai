@@ -1,5 +1,5 @@
 /**
- * Frontend Error & API Contract Tests (Phase 1 Task 4 Section 9).
+ * Frontend Error, API Contract & Trust Boundary Tests (Phase 1 Task 4.1).
  *
  * Executed via Node 24 native test runner:
  * node --test --experimental-strip-types apps/web/tests/chatClient.test.ts
@@ -12,9 +12,14 @@ import {
   parseChatResponse,
   formatSafeCitation,
   createSafeErrorAssistantMessage,
+  isValidUrlSyntax,
+  isOfficialProvenanceUrl,
   SAFE_STATIC_ERROR_MESSAGE,
 } from "../src/lib/chatClient.ts";
-import { initialChatMessages } from "../src/data/chatMockData.ts";
+import {
+  initialChatMessages,
+  chatRelatedDocuments,
+} from "../src/data/chatMockData.ts";
 
 describe("Frontend Chat API Contract & Error Handling Tests", () => {
   // 1. Successful backend response
@@ -41,22 +46,22 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     assert.equal(parsed.citations[0].url, "/post/thong-tin-tuyen-sinh-dai-hoc-chinh-quy-nam-2025");
   });
 
-  // 2. Backend connection refused
-  it("2. Handles backend connection refused with safe static error message", () => {
+  // 2. Backend offline / connection refused
+  it("2. Handles backend offline / connection refused with safe static error message", () => {
     const errorMsg = createSafeErrorAssistantMessage();
     assert.equal(errorMsg.role, "assistant");
     assert.equal(errorMsg.content, SAFE_STATIC_ERROR_MESSAGE);
     assert.equal(errorMsg.citations, undefined);
   });
 
-  // 3. Backend HTTP 500
-  it("3. Handles backend HTTP 500 without fabricating admissions claims", () => {
+  // 3. Backend HTTP error (e.g. 500)
+  it("3. Handles backend HTTP error without fabricating admissions claims", () => {
     const errorMsg = createSafeErrorAssistantMessage();
     assert.match(errorMsg.content, /chưa thể xử lý yêu cầu/);
     assert.equal(errorMsg.extraSources, undefined);
   });
 
-  // 4. Backend timeout
+  // 4. Timeout
   it("4. Handles backend timeout safely", () => {
     const timeoutMsg = createSafeErrorAssistantMessage();
     assert.equal(timeoutMsg.content, SAFE_STATIC_ERROR_MESSAGE);
@@ -82,7 +87,7 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     );
   });
 
-  // 7. Response with no citations
+  // 7. Response with empty citations list
   it("7. Safely parses responses with empty citations list", () => {
     const raw = {
       answer: "Trường Đại học Điện lực có địa chỉ tại 235 Hoàng Quốc Việt, Hà Nội.",
@@ -92,28 +97,109 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     assert.equal(parsed.citations.length, 0);
   });
 
-  // 8. Response with untrusted or missing citation URL
-  it("8. Omits untrusted URLs and does NOT default to /tuyensinh", () => {
+  // 8. Missing citation source
+  it("8. Never defaults missing citation source to 'Trường Đại học Điện lực (EPU)'", () => {
     const rawCitation = {
-      title: "Thông báo tuyển sinh",
-      source: "EPU",
-      url: "javascript:alert('malicious')", // Untrusted!
+      title: "Văn bản hướng dẫn",
+      // missing source field
     };
     const formatted = formatSafeCitation(rawCitation, 0);
     assert.notEqual(formatted, null);
-    assert.equal(formatted?.url, undefined); // Untrusted URL stripped!
-    assert.notEqual(formatted?.url, "/tuyensinh"); // Never default to /tuyensinh!
+    assert.equal(formatted?.source, "");
+    assert.notEqual(formatted?.source, "Trường Đại học Điện lực (EPU)");
 
-    const noUrlCitation = {
-      title: "Quy chế tuyển sinh",
-      source: "Bộ GD&ĐT",
+    const emptySourceCitation = {
+      title: "Quy định số 123",
+      source: "   ",
     };
-    const formattedNoUrl = formatSafeCitation(noUrlCitation, 1);
-    assert.equal(formattedNoUrl?.url, undefined);
+    const formattedEmpty = formatSafeCitation(emptySourceCitation, 1);
+    assert.equal(formattedEmpty?.source, "");
   });
 
-  // 9. No generated mock admissions answer under any failure
-  it("9. Guarantees no mock admissions answers under failure", () => {
+  // 9. Missing document type
+  it("9. Never defaults missing document type to PDF", () => {
+    const rawCitation = {
+      title: "Thông báo tuyển sinh",
+      source: "Phòng Đào tạo",
+      // fileType omitted
+    };
+    const formatted = formatSafeCitation(rawCitation, 0);
+    assert.notEqual(formatted, null);
+    assert.equal(formatted?.fileType, undefined);
+    assert.notEqual(formatted?.fileType, "pdf");
+  });
+
+  // 10. Invalid URL
+  it("10. Rejects invalid and malformed URLs", () => {
+    assert.equal(isValidUrlSyntax("http:// bad url with spaces"), false);
+    assert.equal(isValidUrlSyntax("not-a-valid-url"), false);
+    assert.equal(isValidUrlSyntax(""), false);
+
+    const citation = {
+      title: "Tài liệu",
+      source: "EPU",
+      url: "http:// invalid url",
+    };
+    const formatted = formatSafeCitation(citation, 0);
+    assert.equal(formatted?.url, undefined);
+  });
+
+  // 11. Protocol-relative URL
+  it("11. Strictly rejects protocol-relative URLs (//evil.com)", () => {
+    assert.equal(isValidUrlSyntax("//evil.com/phishing"), false);
+    assert.equal(isValidUrlSyntax("//tuyensinh.epu.edu.vn"), false);
+
+    const citation = {
+      title: "Tài liệu nguy hiểm",
+      source: "Nguồn lạ",
+      url: "//attacker.com/malicious.pdf",
+    };
+    const formatted = formatSafeCitation(citation, 0);
+    assert.equal(formatted?.url, undefined);
+  });
+
+  // 12. Unsafe protocol
+  it("12. Rejects unsafe protocols (javascript, data, vbscript, file)", () => {
+    assert.equal(isValidUrlSyntax("javascript:alert(1)"), false);
+    assert.equal(isValidUrlSyntax("data:text/html,<script>alert(1)</script>"), false);
+    assert.equal(isValidUrlSyntax("vbscript:msgbox(1)"), false);
+    assert.equal(isValidUrlSyntax("file:///etc/passwd"), false);
+
+    const citation = {
+      title: "Tài liệu XSS",
+      source: "EPU",
+      url: "javascript:void(0)",
+    };
+    const formatted = formatSafeCitation(citation, 0);
+    assert.equal(formatted?.url, undefined);
+  });
+
+  // 13. Unknown document URL vs Verified official provenance
+  it("13. Separates URL syntax validation from official provenance verification", () => {
+    const externalUrl = "https://external-untrusted-domain.com/announcement.pdf";
+    // Valid HTTP syntax
+    assert.equal(isValidUrlSyntax(externalUrl), true);
+    // But NOT official EPU provenance
+    assert.equal(isOfficialProvenanceUrl(externalUrl), false);
+
+    // Official EPU domains
+    assert.equal(isOfficialProvenanceUrl("https://epu.edu.vn/post/123"), true);
+    assert.equal(isOfficialProvenanceUrl("https://tuyensinh.epu.edu.vn/dean.pdf"), true);
+    assert.equal(isOfficialProvenanceUrl("/candidate/documents"), true);
+    assert.equal(isOfficialProvenanceUrl("https://moet.gov.vn/quyche"), true);
+
+    const citation = {
+      title: "Bài báo ngoài luồng",
+      source: "Nguồn khác",
+      url: externalUrl,
+    };
+    const formatted = formatSafeCitation(citation, 0);
+    assert.equal(formatted?.url, externalUrl);
+    assert.equal(formatted?.isVerifiedDestination, false);
+  });
+
+  // 14. No generated mock admissions answer under any failure
+  it("14. Guarantees no mock admissions answers under failure", () => {
     const errorMsg = createSafeErrorAssistantMessage();
     const forbidden = [
       "450.000",
@@ -130,19 +216,19 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     }
   });
 
-  // 10. No hardcoded fake PDF page / file-size / source metadata
-  it("10. Does not manufacture fake page labels or file sizes", () => {
+  // 15. No hardcoded fake PDF page / file-size metadata
+  it("15. Does not manufacture fake page labels or file sizes", () => {
     const minimalCitation = {
       title: "Văn bản gốc EPU",
       source: "Trường Đại học Điện lực",
     };
     const formatted = formatSafeCitation(minimalCitation, 0);
-    assert.equal(formatted?.page, undefined); // NOT 'Trang tài liệu'
-    assert.equal(formatted?.fileSize, undefined); // NOT 'Chính thức'
+    assert.equal(formatted?.page, undefined);
+    assert.equal(formatted?.fileSize, undefined);
   });
 
-  // 11. New conversation reset during in-flight request simulation
-  it("11. Conversation reset state invariant: reset identifier invalidates in-flight responses", () => {
+  // 16. New conversation reset during in-flight request
+  it("16. New conversation during request invalidates in-flight responses", () => {
     let conversationResetId = 1;
     const requestResetId = conversationResetId;
 
@@ -154,33 +240,29 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     assert.equal(isOutdated, true);
   });
 
-  // 12. Retry without duplicating user's message
-  it("12. Retry pattern handles message resend without duplication", () => {
+  // 17. Retry without duplicate user messages
+  it("17. Retry pattern resends without duplicating user messages in thread", () => {
     const messages = [
       { id: "msg-1", role: "user" as const, content: "Học phí EPU?", timestamp: "10:00" },
       { id: "msg-2", role: "assistant" as const, content: SAFE_STATIC_ERROR_MESSAGE, timestamp: "10:00" },
     ];
 
-    // On retry with isRetry=true, user messages array length remains unchanged
     const isRetry = true;
-    const updatedUserMessages = isRetry
+    const updatedMessages = isRetry
       ? messages
       : [...messages, { id: "msg-3", role: "user" as const, content: "Học phí EPU?", timestamp: "10:01" }];
 
-    assert.equal(updatedUserMessages.filter((m) => m.role === "user").length, 1);
+    assert.equal(updatedMessages.filter((m) => m.role === "user").length, 1);
   });
 
-  // 13. Mock fixtures are not imported into production candidate answer flows
-  it("13. Production initial chat contains strictly 1 truthful welcome message", () => {
+  // 18. No production mock document metadata
+  it("18. No production mock document metadata in chatRelatedDocuments", () => {
+    assert.equal(chatRelatedDocuments.length, 0);
+
+    // Initial messages contain strictly 1 truthful welcome message without fabricated citations
     assert.equal(initialChatMessages.length, 1);
     assert.equal(initialChatMessages[0].role, "assistant");
     assert.equal(initialChatMessages[0].citations, undefined);
     assert.equal(initialChatMessages[0].extraSources, undefined);
-
-    // Verify no historical mock assistant message asserting 2026 methods exists
-    const hasFakeAdmissionsReply = initialChatMessages.some((m) =>
-      m.content.includes("mã ngành: 7480201") || m.content.includes("kỳ thi đánh giá năng lực")
-    );
-    assert.equal(hasFakeAdmissionsReply, false);
   });
 });

@@ -5,9 +5,10 @@ export interface ChatCitation {
   title: string;
   source: string;
   page?: string;
-  fileType: "pdf" | "docx" | "url";
+  fileType?: "pdf" | "docx" | "url" | "web";
   fileSize?: string;
   url?: string;
+  isVerifiedDestination?: boolean;
 }
 
 export interface ChatMessage {
@@ -33,7 +34,7 @@ export interface RelatedDocumentItem {
   id: string;
   title: string;
   source: string;
-  fileSize: string;
-  fileType: "pdf" | "docx";
+  fileSize?: string;
+  fileType?: "pdf" | "docx" | "url" | "web";
   downloadUrl?: string;
 }

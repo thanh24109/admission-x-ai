@@ -305,3 +305,164 @@ npm --prefix apps/web run build
   - Không commit trực tiếp lên `main`.
   - Không tự ý merge nhánh.
   - Dừng lại sau khi hoàn thành Task 4, chờ review diff độc lập. Không bắt đầu Task 5.
+
+---
+
+# Task 4.1 — Policy Bypass & Frontend Trust Boundary Fixes
+
+## 1. Mục tiêu & Bối cảnh (Objectives & Review Context)
+
+Sau khi hoàn thành Task 4 (`feat/phase-1-task-4-decision-safe-fallback`), bản kiểm tra độc lập tại commit `4051e88bfe711da08f246391513ac9502d690cdf` đưa ra kết luận **PASS WITH CHANGES**. Các lỗ hổng an toàn và biên giới tin cậy cần khắc phục gồm:
+
+1. **P1 — DecisionEngine Policy Bypass:** Các nhánh General Knowledge và Partial Answer có khả năng cấp phép câu trả lời (`ANSWER`, `PARTIAL_ANSWER`) mà không đối soát đầy đủ `PolicyEvaluationReport`:
+   - Vi phạm RB-08 (gắn quy kết tuyển sinh EPU vào tri thức chung) bị bỏ qua.
+   - Vi phạm RB-09 (cam kết/hứa hẹn trúng tuyển) bị đánh giá sau các nhánh cấp phép câu trả lời.
+   - Thất bại hoặc trạng thái chờ của RB-06 không chặn các câu trả lời chính thức không có bằng chứng.
+   - Trả lời từng phần (`PARTIAL_ANSWER`) được cấp phép ngay cả khi các hạn mức (RB-04) hoặc trích dẫn (RB-06) chưa xác thực.
+   - `is_safe_to_answer` không hoàn toàn đồng bộ với `report.is_safe_to_proceed`.
+   - Chuỗi ký tự không tin cậy `"verified"` trên context tự cấp quyền trả lời bất chấp vi phạm chính sách.
+2. **P1 — Frontend Citation Trust Boundaries:**
+   - Client tự động điền `source: "Trường Đại học Điện lực (EPU)"` khi backend bỏ trống.
+   - Client tự động gán `fileType: "pdf"` cho mọi trích dẫn không có định dạng file.
+   - Chưa phân tách rõ ràng giữa thẩm định cú pháp URL (`isValidUrlSyntax`) và xác minh nguồn gốc chính thống (`isOfficialProvenanceUrl`).
+   - Nút bấm xem tài liệu vẫn có thể nhấn được đối với các liên kết chưa xác minh.
+3. **P1 — Loại bỏ Thẻ Tài liệu Mock Sản xuất (Unverified Document Cards):**
+   - Danh sách `chatRelatedDocuments` trong `chatMockData.ts` giả mạo các bài viết CMS web (`/post/...`, `/page/...`) thành file PDF/DOCX với kích thước "Văn bản chính thức".
+   - `ChatContextSidebar.tsx` chưa có trạng thái rỗng trung tính (neutral empty state).
+4. **P2 — Tính nhất quán Vòng đời Quyết định & Yêu cầu:**
+   - Loại bỏ chuỗi cứng `missing_aspects` về tuyển sinh khi context không chứa dữ liệu.
+   - Ngăn chặn `assemble_response_envelope` bịa đặt câu trả lời hỗ trợ khi `verified_answer` bị thiếu.
+   - Làm rõ trách nhiệm sinh `response_id` và quản lý `session_id`.
+
+---
+
+## 2. Các thay đổi Mã nguồn Thực tế (Actual Code Changes)
+
+### 2.1. Backend — Khắc phục Policy Bypass trong `engine.py` & `mappings.py`
+- **Đánh giá RB-09 Tiên quyết:** Đưa khối thẩm định RB-09 (Commitment Guard) lên trước toàn bộ các nhánh trả lời. Bất kỳ câu trả lời dự thảo nào chứa cam kết/hứa hẹn trúng tuyển (kể cả trong chế độ tri thức chung hay câu trả lời từng phần) đều lập tức bị `BLOCK` với `AnswerStatus.REJECTED`.
+- **Khép kín Nhánh General Knowledge (RB-08):**
+  - Kiểm tra kết quả `report.get_result("RB-08")`: Nếu `FAIL` hoặc `NOT_EVALUABLE`, hoặc `context.attribution_verified is False`, chuyển sang `SAFE_FALLBACK` với vi phạm `RB-08`.
+  - Kiểm tra tính nhất quán: `report.is_safe_to_proceed` phải là `True` và `report.overall_outcome == RuleOutcome.PASS`.
+- **Thắt chặt Nhánh Partial Answer (Scenario D):**
+  - Yêu cầu toàn bộ các quy tắc trọng yếu áp dụng (RB-01, RB-04, RB-05, RB-06, RB-09) không được `FAIL` hoặc `NOT_EVALUABLE`.
+  - `context.claim_verification_status` bắt buộc phải là `"verified"`, nhưng chuỗi này không được độc lập cấp quyền nếu báo cáo chính sách có vi phạm.
+  - Trích xuất `missing_aspects` trung thực từ `context.extra_context.get("missing_aspects")`; nếu rỗng, trả về mảng rỗng `[]`, không bao giờ gán chuỗi cứng bịa đặt.
+- **Thẩm định RB-06 (Citation Validity):** Nếu có trích dẫn nhưng kiểm tra danh mục chưa hoàn tất (`NOT_EVALUABLE`) hoặc thất bại (`FAIL`), hệ thống chuyển sang `SAFE_FALLBACK` với lý do `CITATION_VERIFICATION_PENDING`.
+- **Đồng bộ `is_safe_to_answer`:** Đảm bảo `result.is_safe_to_answer == True` khi và chỉ khi `report.is_safe_to_proceed == True`. Mọi báo cáo chính sách mâu thuẫn (contradictory report) có `is_safe_to_proceed=False` đều lập tức đóng đường dẫn trả lời.
+- **Bảo vệ `assemble_response_envelope` (`mappings.py`):**
+  - Làm rõ trách nhiệm sinh mã: `response_id` do caller cung cấp để duy trì tương quan trace phân tán, hoặc tự động sinh UUID nếu khuyết; `session_id` do client session manager quản lý, không bao giờ tự bịa đặt.
+  - INVARIANT: Nếu `decision_result.answer_status` là `ANSWERED` hoặc `PARTIAL` mà `verified_answer` bị thiếu (None hoặc rỗng), hàm ném ngoại lệ `ValueError`, triệt tiêu khả năng phát sinh câu trả lời bịa đặt.
+
+### 2.2. Frontend — Thiết lập Biên giới Tin cậy Trích dẫn & URL
+- **`apps/web/src/types/chat.ts`:**
+  - Chuyển `fileType?: "pdf" | "docx" | "url" | "web"` thành trường tùy chọn (optional) trên cả `ChatCitation` và `RelatedDocumentItem`.
+  - Bổ sung cờ `isVerifiedDestination?: boolean` trên `ChatCitation`.
+- **`apps/web/src/lib/chatClient.ts`:**
+  - Triển khai `isValidUrlSyntax(rawUrl: string): boolean`: Loại bỏ URL rỗng, chứa khoảng trắng, protocol-relative (`//evil.com`), và các giao thức nguy hiểm (`javascript:`, `data:`, `vbscript:`, `file:`, `blob:`).
+  - Triển khai `isOfficialProvenanceUrl(rawUrl: string): boolean`: Tách biệt hoàn toàn việc kiểm tra cú pháp với việc xác minh nguồn gốc. Chỉ chấp nhận các đường dẫn nội bộ (`/post/...`, `/tuyensinh`), các tên miền chính thức của EPU (`*.epu.edu.vn`, `epu.edu.vn`), cổng Bộ GD&ĐT (`moet.gov.vn`), hoặc localhost môi trường phát triển.
+  - Cập nhật `formatSafeCitation`:
+    - KHÔNG BAO GIỜ gán mặc định `source: "Trường Đại học Điện lực (EPU)"`. Nếu backend không cung cấp, giữ nguyên `source: ""`.
+    - KHÔNG BAO GIỜ gán mặc định `fileType: "pdf"`. Nếu backend không cung cấp, giữ nguyên `undefined`.
+    - KHÔNG BAO GIỜ tự chế số trang hoặc dung lượng file.
+- **`apps/web/src/components/chat/ChatCitationCard.tsx`:**
+  - Biểu tượng huy hiệu tài liệu: Chỉ hiển thị huy hiệu đỏ `"PDF"` khi `fileType === "pdf"`, xanh `"DOC"` khi `fileType === "docx"`. Với các trường hợp khác hoặc không có định dạng, hiển thị biểu tượng tài liệu trung tính (`FileText`).
+  - Nút xem tài liệu: Chỉ render liên kết có thể bấm (`<a>` hoặc `<Link>`) khi đích đến vừa có cú pháp hợp lệ vừa được chứng thực nguồn gốc chính thức (`isVerifiedDestination`). Nếu không, hiển thị nhãn tĩnh không thể nhấn `"Tài liệu đối chiếu"`.
+
+### 2.3. Frontend — Xóa bỏ Tài liệu Mock Sản xuất
+- **`apps/web/src/data/chatMockData.ts`:**
+  - Đưa mảng `chatRelatedDocuments: RelatedDocumentItem[] = []` về trạng thái rỗng hoàn toàn, loại bỏ 4 thẻ tài liệu mock gán nhãn PDF cho bài viết web.
+- **`apps/web/src/components/chat/ChatContextSidebar.tsx`:**
+  - Bổ sung trạng thái rỗng trung tính: Khi `chatRelatedDocuments` rỗng, hiển thị thông báo trung tính:
+    *"Chưa có tài liệu đính kèm cho phiên trò chuyện này."*
+  - Giữ nguyên cấu trúc sidebar, chế độ sáng/tối (light/dark mode) và giao diện co giãn responsive.
+
+---
+
+## 3. Bộ Kiểm thử Hồi quy Bổ sung (Regression Test Suite)
+
+### 3.1. Backend Tests (`apps/api/tests/test_decision_engine.py` & `test_response_assembly.py`)
+1. `test_general_mode_with_rb08_fail_blocks_answer`: Draft câu trả lời tri thức chung chứa quy kết EPU trái phép -> SAFE_FALLBACK, `is_safe_to_answer=False`, vi phạm RB-08.
+2. `test_general_mode_with_rb09_fail_blocks_answer`: Draft câu trả lời tri thức chung hứa hẹn trúng tuyển -> BLOCK, `is_safe_to_answer=False`, vi phạm RB-09.
+3. `test_partial_evidence_with_rb06_not_evaluable_blocks_partial_answer`: Bằng chứng một phần nhưng trích dẫn đang chờ đối soát -> SAFE_FALLBACK (`CITATION_VERIFICATION_PENDING`).
+4. `test_partial_evidence_with_rb04_fail_blocks_partial_answer`: Bằng chứng một phần nhưng draft khẳng định số tiền học phí/điểm chuẩn chưa thẩm định -> SAFE_FALLBACK, vi phạm RB-04.
+5. `test_partial_evidence_with_temporal_failure_blocks_partial_answer`: Bằng chứng một phần nhưng năm tuyển sinh bị lệch (RB-05 FAIL) -> ABSTAIN, vi phạm RB-05.
+6. `test_verified_legitimate_general_answer`: Tri thức chung thuần túy, nguồn gốc xác thực, không vi phạm -> ANSWER, `is_safe_to_answer=True`, không có trích dẫn EPU.
+7. `test_verified_legitimate_partial_answer`: Bằng chứng một phần hợp lệ, claim và citation đã xác thực -> PARTIAL_ANSWER, `is_safe_to_answer=True`, bảo toàn `missing_aspects` từ upstream.
+8. `test_contradictory_policy_report_blocks_answer`: Báo cáo chính sách mâu thuẫn (`is_safe_to_proceed=False`) -> Không cho phép ANSWER hay PARTIAL_ANSWER.
+9. `test_no_fabricated_missing_aspects_when_upstream_empty`: Khi `extra_context` không có `missing_aspects`, kết quả trả về mảng rỗng `[]`, không bịa đặt khía cạnh tuyển sinh.
+10. `test_no_fabricated_supported_answer_text_when_verified_answer_absent`: Lắp ráp response envelope ANSWERED/PARTIAL khi thiếu `verified_answer` ném `ValueError`.
+
+### 3.2. Frontend Tests (`apps/web/tests/chatClient.test.ts`)
+1. `Missing citation source`: Trích dẫn không có source -> Không tự động điền "Trường Đại học Điện lực (EPU)".
+2. `Missing document type`: Trích dẫn không có fileType -> Không tự động điền "pdf".
+3. `Invalid URL`: URL chứa khoảng trắng hoặc cú pháp sai -> Bị loại bỏ (`url === undefined`).
+4. `Protocol-relative URL`: URL bắt đầu bằng `//` -> Bị từ chối (`isValidUrlSyntax === false`).
+5. `Unsafe protocol`: URL chứa `javascript:`, `data:`, `vbscript:`, `file:` -> Bị từ chối.
+6. `Unknown document URL`: Tách biệt cú pháp hợp lệ với kiểm tra nguồn gốc (`isOfficialProvenanceUrl === false`).
+7. `Backend offline`: Kết nối bị từ chối -> Trả về thông điệp lỗi tĩnh, không sinh nội dung tuyển sinh.
+8. `HTTP error`: Mã lỗi HTTP 500 -> Trả về thông điệp lỗi tĩnh an toàn.
+9. `Timeout`: Hết thời gian chờ 15s -> Trả về thông điệp lỗi tĩnh an toàn.
+10. `Malformed JSON`: Dữ liệu không phải object -> Ném lỗi `Invalid response`.
+11. `New conversation during request`: Reset cuộc hội thoại vô hiệu hóa phản hồi đang trên đường truyền.
+12. `Retry without duplicate user messages`: Thử lại không nhân đôi tin nhắn người dùng trong thread.
+13. `No production mock document metadata`: `chatRelatedDocuments` có độ dài bằng 0; không có thẻ bài viết CMS nào bị gán nhãn PDF/DOCX giả mạo.
+
+---
+
+## 4. Kết quả Xác thực Thực tế (Exact Validation Execution)
+
+```bash
+# 1. Backend Pytest & Evaluation Harness
+python -m pytest apps/api/tests evals/harness/tests
+============================ 176 passed in 13.78s =============================
+Agent-Harness: 7 passed, 0 failed
+
+# 2. Backend Ruff Static Linter
+python -m ruff check apps/api
+All checks passed!
+
+# 3. Frontend Unit Tests (Node 24 test runner)
+npm --prefix apps/web test
+▶ Frontend Chat API Contract & Error Handling Tests
+  ✔ 1. Successfully parses authentic backend response (4.02ms)
+  ✔ 2. Handles backend offline / connection refused with safe static error message (2.34ms)
+  ✔ 3. Handles backend HTTP error without fabricating admissions claims (2.04ms)
+  ✔ 4. Handles backend timeout safely (1.03ms)
+  ✔ 5. Throws on malformed JSON / non-object payload (2.75ms)
+  ✔ 6. Throws on missing required 'answer' field (1.41ms)
+  ✔ 7. Safely parses responses with empty citations list (0.47ms)
+  ✔ 8. Never defaults missing citation source to 'Trường Đại học Điện lực (EPU)' (0.66ms)
+  ✔ 9. Never defaults missing document type to PDF (1.54ms)
+  ✔ 10. Rejects invalid and malformed URLs (1.19ms)
+  ✔ 11. Strictly rejects protocol-relative URLs (//evil.com) (0.64ms)
+  ✔ 12. Rejects unsafe protocols (javascript, data, vbscript, file) (0.45ms)
+  ✔ 13. Separates URL syntax validation from official provenance verification (0.98ms)
+  ✔ 14. Guarantees no mock admissions answers under failure (2.01ms)
+  ✔ 15. Does not manufacture fake page labels or file sizes (1.43ms)
+  ✔ 16. New conversation during request invalidates in-flight responses (1.28ms)
+  ✔ 17. Retry pattern resends without duplicating user messages in thread (1.07ms)
+  ✔ 18. No production mock document metadata in chatRelatedDocuments (0.34ms)
+✔ Frontend Chat API Contract & Error Handling Tests (33.57ms)
+ℹ tests 18 | pass 18 | fail 0
+
+# 4. Frontend ESLint
+npm --prefix apps/web run lint
+✔ No ESLint warnings or errors
+
+# 5. Frontend Production Build
+npm --prefix apps/web run build
+✓ Compiled successfully in 13.0s
+✓ Generating static pages (131/131)
+```
+
+---
+
+## 5. Kết luận & Cam kết Phạm vi (Verdict & Scope Conformance)
+
+- **Nhánh hiện tại:** `feat/phase-1-task-4-decision-safe-fallback`
+- **Tình trạng:** Hoàn tất 100% yêu cầu Task 4.1. Toàn bộ 176 backend tests và 18 frontend tests đều PASS. Linter và Next.js build không có lỗi hay cảnh báo.
+- **Tuân thủ quy tắc:**
+  - Không merge vào `main`.
+  - Không bắt đầu Task 5.
+  - Dừng lại và cung cấp SHA commit cho phiên thẩm định độc lập.
+

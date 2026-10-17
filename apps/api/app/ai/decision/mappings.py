@@ -36,14 +36,23 @@ def assemble_response_envelope(
     4. Handover never creates a ticket autonomously.
     5. No metadata is fabricated.
     """
+    # ID Generation Responsibility:
+    # - `response_id`: Caller (API gateway or trace coordinator) can explicitly supply an ID to preserve
+    #   distributed trace correlation. If omitted, response assembly deterministically assigns a fresh UUID.
+    # - `session_id`: Owned and supplied by the client session manager; never manufactured here.
     resp_id = response_id or f"resp-{uuid.uuid4().hex[:12]}"
 
-    # Determine visible answer text
+    # Determine visible answer text:
+    # INVARIANT: Never fabricate factual content or placeholder answers when verified_answer is absent.
     if decision_result.safe_response_text is not None:
         answer_text = decision_result.safe_response_text
     elif verified_answer is not None and verified_answer.strip():
-        answer_text = verified_answer
+        answer_text = verified_answer.strip()
     else:
+        if decision_result.answer_status in (AnswerStatus.ANSWERED, AnswerStatus.PARTIAL):
+            raise ValueError(
+                "Cannot assemble an ANSWERED or PARTIAL response envelope without verified_answer or safe_response_text."
+            )
         answer_text = "Hệ thống tư vấn tuyển sinh EPU đã ghi nhận thông tin."
 
     # Filter/enforce citation safety invariants

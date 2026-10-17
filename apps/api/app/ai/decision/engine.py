@@ -134,6 +134,26 @@ class DecisionEngine:
                 trace_metadata=trace_meta,
             )
 
+        # RB-09: Admission Guarantees and Commitment Guard (Evaluated BEFORE authorizing any answer)
+        rb09_res = report.get_result("RB-09")
+        if rb09_res and rb09_res.outcome == RuleOutcome.FAIL:
+            return DecisionResult(
+                decision=DecisionAction.BLOCK,
+                answer_status=AnswerStatus.REJECTED,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                source_mode=self._resolve_source_mode(context.source_mode),
+                reason_code=FallbackReasonCode.OUTPUT_VALIDATION_FAILED.value,
+                is_safe_to_answer=False,
+                requires_clarification=False,
+                requires_handover_confirmation=False,
+                policy_violations=["RB-09"],
+                safe_response_text=get_safe_fallback_text(FallbackReasonCode.OUTPUT_VALIDATION_FAILED),
+                handover=HandoverInfo(offered=False, requested=context.handover_requested),
+                resolved_major_codes=resolved_codes,
+                citations=[],
+                trace_metadata=trace_meta,
+            )
+
         # Out-of-scope query check
         if context.source_mode == "out_of_scope" or context.intent == "out_of_scope":
             return DecisionResult(
@@ -214,7 +234,11 @@ class DecisionEngine:
 
         # Scenario B: Pure General Knowledge Question (RB-08)
         if is_general_knowledge:
-            if context.attribution_verified is False:
+            rb08_res = report.get_result("RB-08")
+            has_rb08_fail = rb08_res is not None and rb08_res.outcome == RuleOutcome.FAIL
+            has_rb08_pending = rb08_res is not None and rb08_res.outcome == RuleOutcome.NOT_EVALUABLE
+
+            if has_rb08_fail or has_rb08_pending or context.attribution_verified is False:
                 return DecisionResult(
                     decision=DecisionAction.SAFE_FALLBACK,
                     answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
@@ -224,7 +248,26 @@ class DecisionEngine:
                     is_safe_to_answer=False,
                     requires_clarification=False,
                     requires_handover_confirmation=False,
-                    policy_violations=["RB-08"],
+                    policy_violations=["RB-08"] if has_rb08_fail else [],
+                    safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
+                    handover=HandoverInfo(offered=False, requested=context.handover_requested),
+                    resolved_major_codes=[],
+                    citations=[],
+                    trace_metadata=trace_meta,
+                )
+
+            # Invariant: is_safe_to_answer must strictly align with report.is_safe_to_proceed
+            if not report.is_safe_to_proceed or report.overall_outcome != RuleOutcome.PASS:
+                return DecisionResult(
+                    decision=DecisionAction.SAFE_FALLBACK,
+                    answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+                    evidence_status=EvidenceStatus.NOT_APPLICABLE,
+                    source_mode=SourceMode.GENERAL,
+                    reason_code=FallbackReasonCode.UNVERIFIED_CLAIM.value,
+                    is_safe_to_answer=False,
+                    requires_clarification=False,
+                    requires_handover_confirmation=False,
+                    policy_violations=[r.rule_id for r in report.violations],
                     safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
                     handover=HandoverInfo(offered=False, requested=context.handover_requested),
                     resolved_major_codes=[],
@@ -274,7 +317,7 @@ class DecisionEngine:
         # Scenario G: Outdated / Stale Admissions Evidence (RB-05)
         rb05_res = report.get_result("RB-05")
         if (
-            (rb05_res and rb05_res.outcome == RuleOutcome.FAIL)
+            (rb05_res and rb05_res.outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE))
             or (context.requested_admissions_year is not None and context.extra_context.get("evidence_year") and context.extra_context.get("evidence_year") != context.requested_admissions_year)
         ):
             return DecisionResult(
@@ -294,7 +337,7 @@ class DecisionEngine:
                 trace_metadata=trace_meta,
             )
 
-        # Scenario F: Missing / Unsupported Evidence (RB-01, RB-04)
+        # Scenario F: Missing / Unsupported Evidence (RB-01)
         if norm_evidence_status in ("missing", "unsupported", "none") or not context.evidence_items:
             rb01_fail = report.get_result("RB-01") and report.get_result("RB-01").outcome == RuleOutcome.FAIL
             return DecisionResult(
@@ -314,50 +357,9 @@ class DecisionEngine:
                 trace_metadata=trace_meta,
             )
 
-        # Scenario D: Partial Evidence (RB-07)
-        if norm_evidence_status == "partial":
-            # Safety gate: Partial evidence requires verified claim grounding for supported portion.
-            # If claim verification has not occurred, fail closed to safe fallback.
-            if context.claim_verification_status != "verified":
-                return DecisionResult(
-                    decision=DecisionAction.SAFE_FALLBACK,
-                    answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
-                    evidence_status=EvidenceStatus.PARTIALLY_SUPPORTED,
-                    source_mode=self._resolve_source_mode(context.source_mode),
-                    reason_code=FallbackReasonCode.UNVERIFIED_CLAIM.value,
-                    is_safe_to_answer=False,
-                    requires_clarification=False,
-                    requires_handover_confirmation=False,
-                    policy_violations=[],
-                    safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
-                    handover=HandoverInfo(offered=False, requested=context.handover_requested),
-                    resolved_major_codes=resolved_codes,
-                    citations=[],
-                    trace_metadata=trace_meta,
-                )
-
-            # Verified partial answer
-            return DecisionResult(
-                decision=DecisionAction.PARTIAL_ANSWER,
-                answer_status=AnswerStatus.PARTIAL,
-                evidence_status=EvidenceStatus.PARTIALLY_SUPPORTED,
-                source_mode=SourceMode.MIXED if is_mixed_mode else SourceMode.OFFICIAL_EPU,
-                reason_code="PARTIAL_EVIDENCE_VERIFIED",
-                is_safe_to_answer=True,
-                requires_clarification=False,
-                requires_handover_confirmation=False,
-                missing_aspects=["Một số chỉ tiêu hoặc phương thức xét tuyển phụ chưa có văn bản công bố chính thức."],
-                policy_violations=[],
-                safe_response_text=None,
-                handover=HandoverInfo(offered=False, requested=context.handover_requested),
-                resolved_major_codes=resolved_codes,
-                citations=citations_list,
-                trace_metadata=trace_meta,
-            )
-
-        # Official Evidence Claim-level Grounding Gate (RB-01)
-        # Even if evidence_status is verified, claim_verification_status MUST be "verified".
-        if context.claim_verification_status != "verified":
+        # RB-04: Restricted Claims Check (Numerical tuition, cutoff, quota assertions)
+        rb04_res = report.get_result("RB-04")
+        if rb04_res and rb04_res.outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE):
             return DecisionResult(
                 decision=DecisionAction.SAFE_FALLBACK,
                 answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
@@ -367,7 +369,7 @@ class DecisionEngine:
                 is_safe_to_answer=False,
                 requires_clarification=False,
                 requires_handover_confirmation=False,
-                policy_violations=[],
+                policy_violations=["RB-04"] if rb04_res.outcome == RuleOutcome.FAIL else [],
                 safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
                 handover=HandoverInfo(offered=False, requested=context.handover_requested),
                 resolved_major_codes=resolved_codes,
@@ -375,32 +377,13 @@ class DecisionEngine:
                 trace_metadata=trace_meta,
             )
 
-        # -------------------------------------------------------------
-        # 5. Output Policy Validation (RB-09, RB-06)
-        # -------------------------------------------------------------
-        # RB-09: Admission Guarantees and Commitment Guard
-        rb09_res = report.get_result("RB-09")
-        if rb09_res and rb09_res.outcome == RuleOutcome.FAIL:
-            return DecisionResult(
-                decision=DecisionAction.BLOCK,
-                answer_status=AnswerStatus.REJECTED,
-                evidence_status=EvidenceStatus.SUPPORTED,
-                source_mode=self._resolve_source_mode(context.source_mode),
-                reason_code=FallbackReasonCode.OUTPUT_VALIDATION_FAILED.value,
-                is_safe_to_answer=False,
-                requires_clarification=False,
-                requires_handover_confirmation=False,
-                policy_violations=["RB-09"],
-                safe_response_text=get_safe_fallback_text(FallbackReasonCode.OUTPUT_VALIDATION_FAILED),
-                handover=HandoverInfo(offered=False, requested=context.handover_requested),
-                resolved_major_codes=resolved_codes,
-                citations=[],
-                trace_metadata=trace_meta,
-            )
-
-        # RB-06: Citation Validity
+        # RB-06: Citation Validity Check
         rb06_res = report.get_result("RB-06")
-        if (rb06_res and rb06_res.outcome == RuleOutcome.FAIL) or context.citation_verification_status == "failed":
+        if (
+            (rb06_res and rb06_res.outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE))
+            or context.citation_verification_status in ("failed", "pending")
+        ):
+            is_cite_fail = (rb06_res and rb06_res.outcome == RuleOutcome.FAIL) or context.citation_verification_status == "failed"
             return DecisionResult(
                 decision=DecisionAction.SAFE_FALLBACK,
                 answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
@@ -410,7 +393,7 @@ class DecisionEngine:
                 is_safe_to_answer=False,
                 requires_clarification=False,
                 requires_handover_confirmation=False,
-                policy_violations=["RB-06"] if rb06_res and rb06_res.outcome == RuleOutcome.FAIL else [],
+                policy_violations=["RB-06"] if is_cite_fail else [],
                 safe_response_text=get_safe_fallback_text(FallbackReasonCode.CITATION_VERIFICATION_PENDING),
                 handover=HandoverInfo(offered=False, requested=context.handover_requested),
                 resolved_major_codes=resolved_codes,
@@ -418,8 +401,56 @@ class DecisionEngine:
                 trace_metadata=trace_meta,
             )
 
+        # Scenario D: Partial Evidence (RB-07)
+        if norm_evidence_status == "partial":
+            # Safety gate: Partial evidence requires verified claim grounding for supported portion,
+            # valid citations if any, and safe policy clearance.
+            claim_is_verified = context.claim_verification_status == "verified"
+            report_safe = report.is_safe_to_proceed and report.overall_outcome == RuleOutcome.PASS
+            rb01_ok = not (report.get_result("RB-01") and report.get_result("RB-01").outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE))
+
+            if not claim_is_verified or not report_safe or not rb01_ok:
+                return DecisionResult(
+                    decision=DecisionAction.SAFE_FALLBACK,
+                    answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+                    evidence_status=EvidenceStatus.PARTIALLY_SUPPORTED,
+                    source_mode=self._resolve_source_mode(context.source_mode),
+                    reason_code=FallbackReasonCode.UNVERIFIED_CLAIM.value,
+                    is_safe_to_answer=False,
+                    requires_clarification=False,
+                    requires_handover_confirmation=False,
+                    policy_violations=[r.rule_id for r in report.violations],
+                    safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
+                    handover=HandoverInfo(offered=False, requested=context.handover_requested),
+                    resolved_major_codes=resolved_codes,
+                    citations=[],
+                    trace_metadata=trace_meta,
+                )
+
+            # Legitimate verified partial answer: Extract upstream missing aspects without fabrication
+            raw_missing = context.extra_context.get("missing_aspects")
+            missing_aspects = [str(x) for x in raw_missing if x] if isinstance(raw_missing, list) else []
+
+            return DecisionResult(
+                decision=DecisionAction.PARTIAL_ANSWER,
+                answer_status=AnswerStatus.PARTIAL,
+                evidence_status=EvidenceStatus.PARTIALLY_SUPPORTED,
+                source_mode=SourceMode.MIXED if is_mixed_mode else SourceMode.OFFICIAL_EPU,
+                reason_code="PARTIAL_EVIDENCE_VERIFIED",
+                is_safe_to_answer=True,
+                requires_clarification=False,
+                requires_handover_confirmation=False,
+                missing_aspects=missing_aspects,
+                policy_violations=[],
+                safe_response_text=None,
+                handover=HandoverInfo(offered=False, requested=context.handover_requested),
+                resolved_major_codes=resolved_codes,
+                citations=citations_list,
+                trace_metadata=trace_meta,
+            )
+
         # -------------------------------------------------------------
-        # 6. Handover Evaluation (Scenario K / RB-12)
+        # 5. Handover Evaluation (Scenario K / RB-12)
         # -------------------------------------------------------------
         if context.handover_requested:
             return DecisionResult(
@@ -442,6 +473,33 @@ class DecisionEngine:
                 ),
                 resolved_major_codes=resolved_codes,
                 citations=citations_list,
+                trace_metadata=trace_meta,
+            )
+
+        # -------------------------------------------------------------
+        # 6. Official Evidence Claim-level Grounding Gate (RB-01) & Full Answer
+        # -------------------------------------------------------------
+        # Even if evidence_status is verified, claim_verification_status MUST be "verified",
+        # and policy report must confirm safety to proceed without critical violations.
+        if (
+            context.claim_verification_status != "verified"
+            or not report.is_safe_to_proceed
+            or report.overall_outcome != RuleOutcome.PASS
+        ):
+            return DecisionResult(
+                decision=DecisionAction.SAFE_FALLBACK,
+                answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+                evidence_status=EvidenceStatus.UNSUPPORTED,
+                source_mode=self._resolve_source_mode(context.source_mode),
+                reason_code=FallbackReasonCode.UNVERIFIED_CLAIM.value,
+                is_safe_to_answer=False,
+                requires_clarification=False,
+                requires_handover_confirmation=False,
+                policy_violations=[r.rule_id for r in report.violations],
+                safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
+                handover=HandoverInfo(offered=False, requested=context.handover_requested),
+                resolved_major_codes=resolved_codes,
+                citations=[],
                 trace_metadata=trace_meta,
             )
 

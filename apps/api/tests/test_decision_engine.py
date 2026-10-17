@@ -4,11 +4,16 @@ Follows docs/ai/phase-1/decision-matrix.md and Task 4 Section 10.
 Covers Scenarios A through K, property invariants, and precedence.
 """
 
+from app.ai.config.policy_config import RulePriority
 from app.ai.decision.engine import DecisionEngine
 from app.ai.decision.fallback import FallbackReasonCode
 from app.ai.decision.models import DecisionAction
 from app.ai.rules.models import (
     PolicyEvaluationContext,
+    PolicyEvaluationReport,
+    RecommendedAction,
+    RuleEvaluationResult,
+    RuleOutcome,
 )
 from app.schemas.citation import CitationRecord, SourceTier
 from app.schemas.response_envelope import (
@@ -157,6 +162,7 @@ def test_scenario_d_verified_partial_evidence():
         claim_verification_status="verified",  # Supported portion verified
         program_resolver_status="canonical_match",
         backend_available=True,
+        extra_context={"missing_aspects": ["Học phí ngành CNTT năm 2025 chưa có thông báo chính thức"]},
     )
     result = engine.evaluate_decision(ctx)
 
@@ -164,7 +170,7 @@ def test_scenario_d_verified_partial_evidence():
     assert result.answer_status == AnswerStatus.PARTIAL
     assert result.evidence_status == EvidenceStatus.PARTIALLY_SUPPORTED
     assert result.is_safe_to_answer is True
-    assert len(result.missing_aspects) > 0
+    assert result.missing_aspects == ["Học phí ngành CNTT năm 2025 chưa có thông báo chính thức"]
 
 
 def test_scenario_d_partial_evidence_without_claim_verification_falls_closed():
@@ -416,3 +422,208 @@ def test_no_false_escalation_from_low_confidence_alone():
 
     assert result.decision == DecisionAction.ANSWER
     assert result.is_safe_to_answer is True
+
+
+# -----------------------------------------------------------------------------
+# Phase 1 Task 4.1 Regression Tests (Policy Bypass Prevention)
+# -----------------------------------------------------------------------------
+def test_general_mode_with_rb08_fail_blocks_answer():
+    """General knowledge with unauthorized EPU attribution (RB-08 FAIL) must not be authorized."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Trí tuệ nhân tạo là gì?",
+        source_mode="general",
+        draft_answer="Theo quy định của Trường Đại học Điện lực, AI là một ngành đào tạo mũi nhọn.",
+        attribution_verified=True,  # Attribution claimed, but draft violates RB-08
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.SAFE_FALLBACK
+    assert result.is_safe_to_answer is False
+    assert result.answer_status == AnswerStatus.INSUFFICIENT_EVIDENCE
+    assert "RB-08" in result.policy_violations
+
+
+def test_general_mode_with_rb09_fail_blocks_answer():
+    """General knowledge draft asserting admission commitments (RB-09 FAIL) must be BLOCKED."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Ngành CNTT học những gì?",
+        source_mode="general",
+        draft_answer="Chương trình rất hiện đại, bạn đăng ký chắc chắn đỗ 100% không cần lo lắng.",
+        attribution_verified=True,
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.BLOCK
+    assert result.is_safe_to_answer is False
+    assert result.answer_status == AnswerStatus.REJECTED
+    assert "RB-09" in result.policy_violations
+
+
+def test_partial_evidence_with_rb06_not_evaluable_blocks_partial_answer():
+    """Partial evidence where citations verifier is pending (RB-06 NOT_EVALUABLE) blocks partial answer."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Chỉ tiêu ngành CNTT năm 2025?",
+        source_mode="official_epu",
+        resolved_major_codes=["7480201"],
+        evidence_status="partial",
+        evidence_items=[{"content": "Chỉ tiêu CNTT 350"}],
+        claim_verification_status="verified",
+        citation_items=[{"document_id": "doc-dean-2025", "page_start": 1}],
+        citation_verification_status=None,  # Pending / not evaluated!
+        program_resolver_status="canonical_match",
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx, citations=[_make_mock_citation()])
+
+    assert result.decision == DecisionAction.SAFE_FALLBACK
+    assert result.is_safe_to_answer is False
+    assert result.reason_code == FallbackReasonCode.CITATION_VERIFICATION_PENDING.value
+
+
+def test_partial_evidence_with_rb04_fail_blocks_partial_answer():
+    """Partial evidence asserting ungrounded numerical tuition/cutoff claims (RB-04 FAIL) blocks partial answer."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Chỉ tiêu và học phí ngành CNTT?",
+        source_mode="official_epu",
+        resolved_major_codes=["7480201"],
+        evidence_status="partial",
+        evidence_items=[{"content": "Chỉ tiêu CNTT 350"}],
+        claim_verification_status="verified",
+        draft_answer="Chỉ tiêu là 350 sinh viên, học phí là 50.000.000 VNĐ một năm.",
+        citation_verification_status="verified",
+        program_resolver_status="canonical_match",
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.SAFE_FALLBACK
+    assert result.is_safe_to_answer is False
+    assert "RB-04" in result.policy_violations
+
+
+def test_partial_evidence_with_temporal_failure_blocks_partial_answer():
+    """Partial evidence with temporal year mismatch (RB-05 FAIL) must abstain, not authorize partial answer."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Chỉ tiêu ngành CNTT năm 2025?",
+        source_mode="official_epu",
+        requested_admissions_year=2025,
+        resolved_major_codes=["7480201"],
+        evidence_status="partial",
+        evidence_items=[{"content": "Chỉ tiêu CNTT 2023"}],
+        claim_verification_status="verified",
+        program_resolver_status="canonical_match",
+        backend_available=True,
+        extra_context={"evidence_year": 2023},
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.ABSTAIN
+    assert result.is_safe_to_answer is False
+    assert "RB-05" in result.policy_violations
+
+
+def test_verified_legitimate_general_answer():
+    """Pure general knowledge with verified attribution and clean policy passes cleanly to ANSWER."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Khái niệm Machine Learning là gì?",
+        intent="general_concept",
+        source_mode="general",
+        draft_answer="Học máy (Machine Learning) là một nhánh của trí tuệ nhân tạo...",
+        attribution_verified=True,
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.ANSWER
+    assert result.answer_status == AnswerStatus.ANSWERED
+    assert result.source_mode == SourceMode.GENERAL
+    assert result.is_safe_to_answer is True
+    assert len(result.citations) == 0
+
+
+def test_verified_legitimate_partial_answer():
+    """Legitimate partial evidence with verified claims and citations preserves upstream missing aspects."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Chỉ tiêu và học phí ngành CNTT năm 2025?",
+        source_mode="official_epu",
+        resolved_major_codes=["7480201"],
+        evidence_status="partial",
+        evidence_items=[{"content": "Chỉ tiêu CNTT 350"}],
+        claim_verification_status="verified",
+        citation_verification_status="verified",
+        program_resolver_status="canonical_match",
+        backend_available=True,
+        extra_context={"missing_aspects": ["Học phí dự kiến cho năm 2025 chưa có thông báo chính thức"]},
+    )
+    result = engine.evaluate_decision(ctx, citations=[_make_mock_citation()])
+
+    assert result.decision == DecisionAction.PARTIAL_ANSWER
+    assert result.answer_status == AnswerStatus.PARTIAL
+    assert result.is_safe_to_answer is True
+    assert result.missing_aspects == ["Học phí dự kiến cho năm 2025 chưa có thông báo chính thức"]
+    assert len(result.citations) == 1
+
+
+def test_contradictory_policy_report_blocks_answer():
+    """Caller-provided policy report with is_safe_to_proceed=False must never allow ANSWER or PARTIAL_ANSWER."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Thông tin tuyển sinh ngành CNTT?",
+        source_mode="official_epu",
+        claim_verification_status="verified",  # Untrusted string claiming verified
+        evidence_status="verified",
+        backend_available=True,
+    )
+    # Contradictory policy report with FAIL
+    contradictory_report = PolicyEvaluationReport(
+        overall_outcome=RuleOutcome.FAIL,
+        recommended_action=RecommendedAction.SAFE_FALLBACK,
+        rule_results=[
+            RuleEvaluationResult(
+                rule_id="RB-01",
+                outcome=RuleOutcome.FAIL,
+                reason_code="OFFICIAL_EVIDENCE_MISSING",
+                message="Contradictory policy evaluation report failure.",
+                severity=RulePriority.CRITICAL,
+                recommended_action=RecommendedAction.SAFE_FALLBACK,
+            )
+        ],
+        is_safe_to_proceed=False,
+    )
+    result = engine.evaluate_decision(ctx, policy_report=contradictory_report)
+
+    assert result.decision in (DecisionAction.SAFE_FALLBACK, DecisionAction.ABSTAIN, DecisionAction.BLOCK)
+    assert result.is_safe_to_answer is False
+    assert result.decision != DecisionAction.ANSWER
+    assert result.decision != DecisionAction.PARTIAL_ANSWER
+
+
+def test_no_fabricated_missing_aspects_when_upstream_empty():
+    """When extra_context has no missing_aspects, result.missing_aspects is strictly empty list."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Chỉ tiêu ngành CNTT 2025?",
+        source_mode="official_epu",
+        resolved_major_codes=["7480201"],
+        evidence_status="partial",
+        evidence_items=[{"content": "Chỉ tiêu 350"}],
+        claim_verification_status="verified",
+        citation_verification_status="verified",
+        program_resolver_status="canonical_match",
+        backend_available=True,
+        # No extra_context["missing_aspects"]
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.PARTIAL_ANSWER
+    assert result.is_safe_to_answer is True
+    assert result.missing_aspects == []

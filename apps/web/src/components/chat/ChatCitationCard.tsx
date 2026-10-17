@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ExternalLink, ChevronDown, ChevronUp, FileText } from "lucide-react";
 import { ChatCitation } from "@/types/chat";
+import { isOfficialProvenanceUrl } from "@/lib/chatClient";
 
 interface ChatCitationCardProps {
   citation: ChatCitation;
@@ -13,7 +14,13 @@ interface ChatCitationCardProps {
 export function ChatCitationCard({ citation, extraSources = [] }: ChatCitationCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const hasSafeUrl = Boolean(citation.url && citation.url.trim());
+  // Invariant: Clickable links require BOTH valid URL syntax AND verified official provenance
+  const hasValidUrl = Boolean(citation.url && citation.url.trim());
+  const isClickableDestination = Boolean(
+    hasValidUrl &&
+    citation.url &&
+    (citation.isVerifiedDestination ?? isOfficialProvenanceUrl(citation.url))
+  );
   const isExternalUrl = Boolean(citation.url && citation.url.startsWith("http"));
 
   // Format secondary metadata without manufacturing fake page or size labels
@@ -24,17 +31,30 @@ export function ChatCitationCard({ citation, extraSources = [] }: ChatCitationCa
   if (citation.fileSize && citation.fileSize.trim()) {
     metaParts.push(citation.fileSize.trim());
   }
-  const secondaryMeta = metaParts.length > 0 ? metaParts.join(" • ") : citation.source;
+  const secondaryMeta =
+    metaParts.length > 0
+      ? metaParts.join(" • ")
+      : (citation.source || "Tài liệu tham khảo");
 
   return (
     <div className="mt-3.5 space-y-2">
       {/* 1. Main Document Citation Card */}
       <div className="flex items-center justify-between p-3 rounded-xl bg-[#F8FAFD] dark:bg-[#12223C] border border-[#E3ECF8] dark:border-[#1E3250] hover:border-[#0866D9]/40 transition-all group">
         <div className="flex items-center gap-3 min-w-0">
-          {/* PDF Badge Icon */}
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#EF4444] text-white font-bold text-[10px] tracking-wider uppercase shrink-0 shadow-2xs">
-            {citation.fileType === "pdf" ? "PDF" : "DOC"}
-          </div>
+          {/* File Badge Icon: Strictly check authentic file type, never default to PDF */}
+          {citation.fileType === "pdf" ? (
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#EF4444] text-white font-bold text-[10px] tracking-wider uppercase shrink-0 shadow-2xs">
+              PDF
+            </div>
+          ) : citation.fileType === "docx" ? (
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#2563EB] text-white font-bold text-[10px] tracking-wider uppercase shrink-0 shadow-2xs">
+              DOC
+            </div>
+          ) : (
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 shrink-0 shadow-2xs">
+              <FileText className="w-4 h-4 text-[#0866D9] dark:text-[#3B82F6]" />
+            </div>
+          )}
 
           <div className="flex flex-col min-w-0">
             <span className="text-xs sm:text-sm font-semibold text-[#0B1D49] dark:text-white truncate group-hover:text-[#0866D9] transition-colors">
@@ -46,8 +66,8 @@ export function ChatCitationCard({ citation, extraSources = [] }: ChatCitationCa
           </div>
         </div>
 
-        {/* Action: Only render clickable link if an authentic URL is present */}
-        {hasSafeUrl && citation.url ? (
+        {/* Action: Only render clickable link if destination is verified; otherwise render neutral non-clickable label */}
+        {isClickableDestination && citation.url ? (
           isExternalUrl ? (
             <a
               href={citation.url}

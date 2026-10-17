@@ -79,37 +79,9 @@ export const suggestionSets: Record<SuggestionTabKey, QuestionSuggestion[][]> = 
   ],
 };
 
-export const chatRelatedDocuments: RelatedDocumentItem[] = [
-  {
-    id: "doc-01",
-    title: "Thông tin tuyển sinh đại học chính quy",
-    source: "Trường Đại học Điện lực",
-    fileSize: "Văn bản chính thức",
-    fileType: "pdf",
-    downloadUrl: "/post/thong-tin-tuyen-sinh-dai-hoc-chinh-quy-nam-2025",
-  },
-  {
-    id: "doc-02",
-    title: "Thông báo tuyển sinh đào tạo thạc sĩ",
-    source: "Trường Đại học Điện lực",
-    fileSize: "Văn bản chính thức",
-    fileType: "pdf",
-    downloadUrl: "/post/thong-bao-ve-viec-tuyen-sinh-dao-tao-trinh-do-thac-si-nam-2026",
-  },
-  {
-    id: "doc-03",
-    title: "Hướng dẫn thực hành đăng ký xét tuyển",
-    source: "Trường Đại học Điện lực",
-    fileSize: "Hướng dẫn",
-    fileType: "pdf",
-    downloadUrl: "/post/thong-bao-thuc-hanh-dang-ky-xet-tuyen-tren-he-thong-tuyen-sinh-chung",
-  },
-  {
-    id: "doc-04",
-    title: "Cổng thông tin đào tạo đại học EPU",
-    source: "Trường Đại học Điện lực",
-    fileSize: "Thông tin chung",
-    fileType: "docx",
-    downloadUrl: "/page/dai-hoc",
-  },
-];
+/**
+ * Related documents for candidate chat session.
+ * INVARIANT: Never manufacture mock document records with fake PDF badges, sizes, or CMS links.
+ * Verified documents are populated from authentic catalog data.
+ */
+export const chatRelatedDocuments: RelatedDocumentItem[] = [];
