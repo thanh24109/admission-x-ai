@@ -85,9 +85,10 @@ def evaluate_rb01_official_evidence(context: PolicyEvaluationContext) -> RuleEva
             recommended_action=RecommendedAction.SAFE_FALLBACK,
         )
 
-    # Full PASS: Requires BOTH evidence presence AND verified claim grounding
+    # Full PASS: Requires evidence presence (verified or partial) AND verified claim grounding
+    # Note: For partial evidence, claim_verification_status == "verified" certifies that the supported claims are verified
     if (
-        context.evidence_status == "verified"
+        context.evidence_status in ("verified", "partial")
         and context.evidence_items
         and context.claim_verification_status == "verified"
     ):
@@ -116,7 +117,26 @@ def evaluate_rb02_program_resolution(context: PolicyEvaluationContext) -> RuleEv
 
     Requires a trusted resolver result ('canonical_match') rather than merely
     a non-empty code list.
+    Distinguishes when program resolution is not applicable (e.g. general knowledge)
+    from when it is applicable but unresolved.
     """
+    is_program_applicable = (
+        context.source_mode == "official_epu"
+        or context.intent in ("curriculum", "program_query")
+        or context.resolved_major_codes is not None
+        or context.program_resolver_status is not None
+    )
+
+    if not is_program_applicable:
+        return RuleEvaluationResult(
+            rule_id="RB-02",
+            outcome=RuleOutcome.PASS,
+            reason_code="PROGRAM_RESOLUTION_NOT_REQUIRED",
+            message="Rule RB-02 satisfied: No specific EPU program name or code resolution requested.",
+            severity=RulePriority.HIGH,
+            recommended_action=RecommendedAction.DIRECT_ANSWER,
+        )
+
     if context.program_resolver_status == "not_found" or (
         context.resolved_major_codes is not None and len(context.resolved_major_codes) == 0
     ):

@@ -156,38 +156,52 @@ class RulebaseEngine:
             if r.outcome == RuleOutcome.FAIL and r.rule_id == "RB-10":
                 return RecommendedAction.SAFE_FALLBACK
 
-        # --- Layer 2: Verified Evidence and Temporal Validity ---
-        # Missing evidence (RB-01), restricted claims (RB-04), temporal mismatch (RB-05), citation failure (RB-06)
+        # Unresolved safety or privacy validation
         for r in results:
-            if r.outcome == RuleOutcome.FAIL and r.rule_id in ("RB-01", "RB-04", "RB-05", "RB-06"):
+            if r.outcome == RuleOutcome.NOT_EVALUABLE and r.rule_id in ("RB-10", "RB-11", "RB-13"):
                 return RecommendedAction.SAFE_FALLBACK
 
-        # --- Layer 3: Ambiguity and Source Classification ---
-        # Ambiguous major (RB-03) or unresolvable program (RB-02)
+        # --- Layer 2: Ambiguity and Program Identification (Decision Matrix Order: 2. Resolve Ambiguity) ---
+        # Focused clarification required before retrieving/evaluating specific curriculum evidence
         for r in results:
             if r.outcome == RuleOutcome.FAIL and r.rule_id in ("RB-03", "RB-02"):
                 return RecommendedAction.CLARIFICATION_NEEDED
 
-        # General knowledge attribution/citation failure (RB-08)
+        # --- Layer 3: Verified Evidence and Temporal Validity ---
+        # Unresolved evidence (RB-01), restricted claims (RB-04), temporal mismatch (RB-05), or citation failure (RB-06)
+        # MUST NEVER be bypassed by partial-answer or handover routing
         for r in results:
-            if r.outcome == RuleOutcome.FAIL and r.rule_id == "RB-08":
+            if r.outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE) and r.rule_id in (
+                "RB-01",
+                "RB-04",
+                "RB-05",
+                "RB-06",
+            ):
+                return RecommendedAction.SAFE_FALLBACK
+
+        # Unresolved program resolver status for applicable program queries
+        for r in results:
+            if r.outcome == RuleOutcome.NOT_EVALUABLE and r.rule_id == "RB-02":
+                return RecommendedAction.SAFE_FALLBACK
+
+        # General knowledge attribution/citation failure or unresolved attribution (RB-08)
+        for r in results:
+            if r.outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE) and r.rule_id == "RB-08":
                 return RecommendedAction.SAFE_FALLBACK
 
         # Partial evidence (RB-07)
+        # Reached ONLY when safety, ambiguity, and verified evidence & temporal checks have PASSED
         if context.evidence_status == "partial":
             return RecommendedAction.PARTIAL_ANSWER
 
         # --- Layer 4: Answer Format and Tone ---
-        # User Handover Requested (RB-12) - evaluated only after safety and evidence rules pass
+        # User Handover Requested (RB-12) - reached ONLY after safety, ambiguity, and evidence checks pass
         if context.handover_requested:
             return RecommendedAction.HANDOVER_SUGGESTED
 
         # --- Fallback Handling ---
-        # Non-evaluable rules must lead to safe fallback, never direct answer
-        if overall_outcome == RuleOutcome.NOT_EVALUABLE:
-            return RecommendedAction.SAFE_FALLBACK
-
-        if overall_outcome == RuleOutcome.FAIL:
+        # Any remaining non-evaluable or failed rule leads to safe fallback, never direct answer
+        if overall_outcome in (RuleOutcome.NOT_EVALUABLE, RuleOutcome.FAIL):
             return RecommendedAction.SAFE_FALLBACK
 
         return RecommendedAction.DIRECT_ANSWER
