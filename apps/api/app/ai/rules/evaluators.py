@@ -31,9 +31,20 @@ _RESTRICTED_NUMERICAL_ASSERTION = re.compile(
     re.IGNORECASE,
 )
 
+# Ungrounded EPU attribution markers in general mode
+_EPU_ATTRIBUTION_PATTERN = re.compile(
+    r"(?:\btheo\s+quy\s+định\s+(?:của\s+)?|\btại\s+|\bở\s+|\bcủa\s+|\btrường\s+)(?:đại\s+học\s+điện\s+lực|epu)\b",
+    re.IGNORECASE,
+)
+
 
 def evaluate_rb01_official_evidence(context: PolicyEvaluationContext) -> RuleEvaluationResult:
-    """RB-01: Require validated Tier 1 evidence for each material EPU claim."""
+    """RB-01: Require validated Tier 1 evidence for each material EPU claim.
+
+    Enforces that evidence availability (nonempty evidence items) is separated
+    from claim-level verification (claim_verification_status). Nonempty evidence
+    does not alone prove grounding.
+    """
     is_epu_claim = context.source_mode == "official_epu" or context.intent in (
         "curriculum",
         "program_query",
@@ -50,16 +61,7 @@ def evaluate_rb01_official_evidence(context: PolicyEvaluationContext) -> RuleEva
             recommended_action=RecommendedAction.DIRECT_ANSWER,
         )
 
-    if context.evidence_status == "verified" and context.evidence_items:
-        return RuleEvaluationResult(
-            rule_id="RB-01",
-            outcome=RuleOutcome.PASS,
-            reason_code="OFFICIAL_EVIDENCE_VERIFIED",
-            message="Rule RB-01 satisfied: Verified Tier 1 evidence present for EPU claims.",
-            severity=RulePriority.CRITICAL,
-            recommended_action=RecommendedAction.DIRECT_ANSWER,
-        )
-
+    # Missing evidence check
     if context.evidence_status in ("missing", "none") or (
         context.evidence_items is not None and len(context.evidence_items) == 0
     ):
@@ -72,44 +74,80 @@ def evaluate_rb01_official_evidence(context: PolicyEvaluationContext) -> RuleEva
             recommended_action=RecommendedAction.SAFE_FALLBACK,
         )
 
-    # When claim-level verification is pending or dependency not available
+    # Claim verification failure check
+    if context.claim_verification_status in ("unverified", "failed"):
+        return RuleEvaluationResult(
+            rule_id="RB-01",
+            outcome=RuleOutcome.FAIL,
+            reason_code="CLAIM_UNVERIFIED",
+            message="Rule RB-01 violation: Official EPU factual claims are not grounded in verified evidence.",
+            severity=RulePriority.CRITICAL,
+            recommended_action=RecommendedAction.SAFE_FALLBACK,
+        )
+
+    # Full PASS: Requires BOTH evidence presence AND verified claim grounding
+    if (
+        context.evidence_status == "verified"
+        and context.evidence_items
+        and context.claim_verification_status == "verified"
+    ):
+        return RuleEvaluationResult(
+            rule_id="RB-01",
+            outcome=RuleOutcome.PASS,
+            reason_code="OFFICIAL_EVIDENCE_VERIFIED",
+            message="Rule RB-01 satisfied: Verified Tier 1 evidence present and claim-level verification confirmed.",
+            severity=RulePriority.CRITICAL,
+            recommended_action=RecommendedAction.DIRECT_ANSWER,
+        )
+
+    # Evidence exists or is pending, but claim-level verifier has not confirmed grounding -> NOT_EVALUABLE
     return RuleEvaluationResult(
         rule_id="RB-01",
         outcome=RuleOutcome.NOT_EVALUABLE,
         reason_code="CLAIM_VERIFICATION_UNAVAILABLE",
-        message="Rule RB-01 pending: Claim-level evidence verifier is not yet available; claim cannot be verified as official EPU evidence.",
+        message="Rule RB-01 pending: Evidence present but claim-level grounding verifier is unavailable or unverified.",
         severity=RulePriority.CRITICAL,
         recommended_action=RecommendedAction.SAFE_FALLBACK,
     )
 
 
 def evaluate_rb02_program_resolution(context: PolicyEvaluationContext) -> RuleEvaluationResult:
-    """RB-02: Resolve program identifiers against canonical records."""
-    if context.resolved_major_codes is not None:
-        if len(context.resolved_major_codes) == 1:
-            return RuleEvaluationResult(
-                rule_id="RB-02",
-                outcome=RuleOutcome.PASS,
-                reason_code="PROGRAM_RESOLVED",
-                message=f"Rule RB-02 satisfied: Program resolved to canonical code '{context.resolved_major_codes[0]}'.",
-                severity=RulePriority.HIGH,
-                recommended_action=RecommendedAction.DIRECT_ANSWER,
-            )
-        if len(context.resolved_major_codes) == 0:
-            return RuleEvaluationResult(
-                rule_id="RB-02",
-                outcome=RuleOutcome.FAIL,
-                reason_code="PROGRAM_NOT_FOUND",
-                message="Rule RB-02 violation: Requested program could not be resolved in canonical records.",
-                severity=RulePriority.HIGH,
-                recommended_action=RecommendedAction.CLARIFICATION_NEEDED,
-            )
+    """RB-02: Resolve program identifiers against canonical records.
+
+    Requires a trusted resolver result ('canonical_match') rather than merely
+    a non-empty code list.
+    """
+    if context.program_resolver_status == "not_found" or (
+        context.resolved_major_codes is not None and len(context.resolved_major_codes) == 0
+    ):
+        return RuleEvaluationResult(
+            rule_id="RB-02",
+            outcome=RuleOutcome.FAIL,
+            reason_code="PROGRAM_NOT_FOUND",
+            message="Rule RB-02 violation: Requested program could not be resolved in canonical records.",
+            severity=RulePriority.HIGH,
+            recommended_action=RecommendedAction.CLARIFICATION_NEEDED,
+        )
+
+    if (
+        context.program_resolver_status == "canonical_match"
+        and context.resolved_major_codes is not None
+        and len(context.resolved_major_codes) == 1
+    ):
+        return RuleEvaluationResult(
+            rule_id="RB-02",
+            outcome=RuleOutcome.PASS,
+            reason_code="PROGRAM_RESOLVED",
+            message=f"Rule RB-02 satisfied: Program resolved to canonical code '{context.resolved_major_codes[0]}'.",
+            severity=RulePriority.HIGH,
+            recommended_action=RecommendedAction.DIRECT_ANSWER,
+        )
 
     return RuleEvaluationResult(
         rule_id="RB-02",
         outcome=RuleOutcome.NOT_EVALUABLE,
         reason_code="RESOLVER_NOT_RUN",
-        message="Rule RB-02 pending: Program resolver dependency has not been executed.",
+        message="Rule RB-02 pending: Canonical program resolver status is unverified or not run.",
         severity=RulePriority.HIGH,
         recommended_action=RecommendedAction.SAFE_FALLBACK,
     )
@@ -215,7 +253,11 @@ def evaluate_rb05_temporal_validity(context: PolicyEvaluationContext) -> RuleEva
 
 
 def evaluate_rb06_citation_validity(context: PolicyEvaluationContext) -> RuleEvaluationResult:
-    """RB-06: Validate document identity, allowed source, chunk ID and page span."""
+    """RB-06: Validate document identity, allowed source, chunk ID and page span.
+
+    Preserves clear distinction between structural formatting checks and full
+    citation catalog verification.
+    """
     if context.citation_items:
         for idx, cite in enumerate(context.citation_items):
             doc_id: Any = (
@@ -240,23 +282,38 @@ def evaluate_rb06_citation_validity(context: PolicyEvaluationContext) -> RuleEva
                     recommended_action=RecommendedAction.SAFE_FALLBACK,
                 )
 
-        if not context.extra_context.get("citations_verified"):
+        # Check trusted citation verification contract
+        if context.citation_verification_status == "failed":
             return RuleEvaluationResult(
                 rule_id="RB-06",
-                outcome=RuleOutcome.NOT_EVALUABLE,
-                reason_code="CITATION_VERIFIER_PENDING",
-                message="Rule RB-06 pending: Official citations emitted but full claim-level verifier is not configured.",
+                outcome=RuleOutcome.FAIL,
+                reason_code="CITATION_VERIFICATION_FAILED",
+                message="Rule RB-06 violation: Emitted citations failed catalog verification.",
                 severity=RulePriority.CRITICAL,
                 recommended_action=RecommendedAction.SAFE_FALLBACK,
             )
 
+        if (
+            context.citation_verification_status == "verified"
+            or context.extra_context.get("citations_verified") is True
+        ):
+            return RuleEvaluationResult(
+                rule_id="RB-06",
+                outcome=RuleOutcome.PASS,
+                reason_code="CITATIONS_VALIDATED",
+                message="Rule RB-06 satisfied: Emitted citations verified against allowed catalog.",
+                severity=RulePriority.CRITICAL,
+                recommended_action=RecommendedAction.DIRECT_ANSWER,
+            )
+
+        # Structural format checks passed, but full citation catalog verification is pending
         return RuleEvaluationResult(
             rule_id="RB-06",
-            outcome=RuleOutcome.PASS,
-            reason_code="CITATIONS_VALIDATED",
-            message="Rule RB-06 satisfied: Emitted citations verified against allowed catalog.",
+            outcome=RuleOutcome.NOT_EVALUABLE,
+            reason_code="CITATION_VERIFIER_PENDING",
+            message="Rule RB-06 pending: Emitted citations passed structural format checks but full catalog verifier is not run/verified.",
             severity=RulePriority.CRITICAL,
-            recommended_action=RecommendedAction.DIRECT_ANSWER,
+            recommended_action=RecommendedAction.SAFE_FALLBACK,
         )
 
     # If official claims are asserted in draft answer, citations are required
@@ -314,6 +371,27 @@ def evaluate_rb08_general_knowledge(context: PolicyEvaluationContext) -> RuleEva
                 severity=RulePriority.HIGH,
                 recommended_action=RecommendedAction.SAFE_FALLBACK,
             )
+
+        if context.attribution_verified is False:
+            return RuleEvaluationResult(
+                rule_id="RB-08",
+                outcome=RuleOutcome.NOT_EVALUABLE,
+                reason_code="ATTRIBUTION_UNVERIFIED",
+                message="Rule RB-08 pending: Attribution verification cannot be confirmed for general knowledge response.",
+                severity=RulePriority.HIGH,
+                recommended_action=RecommendedAction.SAFE_FALLBACK,
+            )
+
+        if context.draft_answer and _EPU_ATTRIBUTION_PATTERN.search(context.draft_answer):
+            return RuleEvaluationResult(
+                rule_id="RB-08",
+                outcome=RuleOutcome.FAIL,
+                reason_code="UNAUTHORIZED_EPU_ATTRIBUTION_IN_GENERAL_MODE",
+                message="Rule RB-08 violation: General knowledge response contains unauthorized EPU-specific attribution without official evidence.",
+                severity=RulePriority.HIGH,
+                recommended_action=RecommendedAction.SAFE_FALLBACK,
+            )
+
         return RuleEvaluationResult(
             rule_id="RB-08",
             outcome=RuleOutcome.PASS,
@@ -334,9 +412,23 @@ def evaluate_rb08_general_knowledge(context: PolicyEvaluationContext) -> RuleEva
 
 
 def evaluate_rb09_admission_guarantees(context: PolicyEvaluationContext) -> RuleEvaluationResult:
-    """RB-09: Reject admission guarantees and deterministic acceptance predictions."""
-    target_text = context.draft_answer or context.user_message
-    check_result = check_commitment(target_text)
+    """RB-09: Reject admission guarantees and deterministic acceptance predictions.
+
+    Evaluates proposed assistant answers (draft_answer). User queries asking about
+    guarantees (e.g. 'Em 23 điểm có chắc chắn đỗ không?') are candidate inquiries,
+    not assistant commitments, and must not be flagged as violations.
+    """
+    if not context.draft_answer:
+        return RuleEvaluationResult(
+            rule_id="RB-09",
+            outcome=RuleOutcome.PASS,
+            reason_code="NO_DRAFT_ANSWER",
+            message="Rule RB-09 satisfied: No draft answer asserting admission guarantees.",
+            severity=RulePriority.CRITICAL,
+            recommended_action=RecommendedAction.DIRECT_ANSWER,
+        )
+
+    check_result = check_commitment(context.draft_answer)
 
     if check_result.has_violation:
         return RuleEvaluationResult(
@@ -352,22 +444,52 @@ def evaluate_rb09_admission_guarantees(context: PolicyEvaluationContext) -> Rule
         rule_id="RB-09",
         outcome=RuleOutcome.PASS,
         reason_code="NO_GUARANTEES_DETECTED",
-        message="Rule RB-09 satisfied: No forbidden admission guarantees detected.",
+        message="Rule RB-09 satisfied: No forbidden admission guarantees detected in draft answer.",
         severity=RulePriority.CRITICAL,
         recommended_action=RecommendedAction.DIRECT_ANSWER,
     )
 
 
 def evaluate_rb10_privacy(context: PolicyEvaluationContext) -> RuleEvaluationResult:
-    """RB-10: Collect only strictly necessary fields, avoid leaking personal data."""
+    """RB-10: Collect only strictly necessary fields, avoid leaking personal data.
+
+    Ensures error/diagnostic messages never expose raw PII, and allows safe redaction
+    to proceed without unnecessarily blocking admissions assistance.
+    """
+    # 1. Leakage check on proposed assistant response
+    if context.draft_answer:
+        draft_pii = detect_pii(context.draft_answer)
+        if draft_pii:
+            types_found = {m.pii_type.value for m in draft_pii}
+            return RuleEvaluationResult(
+                rule_id="RB-10",
+                outcome=RuleOutcome.FAIL,
+                reason_code="PII_LEAK_IN_DRAFT_ANSWER",
+                message=f"Rule RB-10 violation: Proposed response leaks sensitive personal identifiers ({', '.join(sorted(types_found))}). Response blocked.",
+                severity=RulePriority.CRITICAL,
+                recommended_action=RecommendedAction.BLOCK_RESPONSE,
+            )
+
+    # 2. Check user input for sensitive identifiers
     pii_matches = detect_pii(context.user_message)
     if pii_matches:
         types_found = {m.pii_type.value for m in pii_matches}
+        # If safe redaction is enabled/performed, do not block admissions assistance
+        if context.pii_redacted:
+            return RuleEvaluationResult(
+                rule_id="RB-10",
+                outcome=RuleOutcome.PASS,
+                reason_code="PII_SAFELY_REDACTED",
+                message=f"Rule RB-10 satisfied: Sensitive identifiers ({', '.join(sorted(types_found))}) in user input safely redacted.",
+                severity=RulePriority.CRITICAL,
+                recommended_action=RecommendedAction.DIRECT_ANSWER,
+            )
+
         return RuleEvaluationResult(
             rule_id="RB-10",
             outcome=RuleOutcome.FAIL,
             reason_code="SENSITIVE_PII_PRESENT",
-            message=f"Rule RB-10 violation: User message contains sensitive personal identifiers ({', '.join(sorted(types_found))}). Masking required.",
+            message=f"Rule RB-10 violation: User message contains unmasked sensitive personal identifiers ({', '.join(sorted(types_found))}). Safe redaction required.",
             severity=RulePriority.CRITICAL,
             recommended_action=RecommendedAction.SAFE_FALLBACK,
         )
@@ -383,17 +505,45 @@ def evaluate_rb10_privacy(context: PolicyEvaluationContext) -> RuleEvaluationRes
 
 
 def evaluate_rb11_prompt_injection(context: PolicyEvaluationContext) -> RuleEvaluationResult:
-    """RB-11: Treat untrusted content as data; ignore instruction injection."""
-    injection_result = check_prompt_injection(context.user_message)
-    if injection_result.is_injection:
+    """RB-11: Treat untrusted content as data; ignore instruction injection.
+
+    Deterministically inspects user message and lower-trust retrieved evidence passages
+    for prompt injection and instruction override attempts.
+    """
+    # 1. User message check
+    user_inj = check_prompt_injection(context.user_message)
+    if user_inj.is_injection:
         return RuleEvaluationResult(
             rule_id="RB-11",
             outcome=RuleOutcome.FAIL,
             reason_code="PROMPT_INJECTION_DETECTED",
-            message=f"Rule RB-11 violation: {injection_result.reason}",
+            message=f"Rule RB-11 violation: {user_inj.reason}",
             severity=RulePriority.CRITICAL,
             recommended_action=RecommendedAction.BLOCK_RESPONSE,
         )
+
+    # 2. Lower-trust retrieved passages check in evidence_items
+    if context.evidence_items:
+        for idx, item in enumerate(context.evidence_items):
+            passage_text = ""
+            if isinstance(item, str):
+                passage_text = item
+            elif isinstance(item, dict):
+                passage_text = item.get("content") or item.get("text") or item.get("passage") or ""
+            else:
+                passage_text = getattr(item, "content", None) or getattr(item, "text", "") or ""
+
+            if passage_text:
+                passage_inj = check_prompt_injection(str(passage_text))
+                if passage_inj.is_injection:
+                    return RuleEvaluationResult(
+                        rule_id="RB-11",
+                        outcome=RuleOutcome.FAIL,
+                        reason_code="INDIRECT_PROMPT_INJECTION_DETECTED",
+                        message=f"Rule RB-11 violation: Indirect injection attempt in retrieved passage index {idx} ({passage_inj.matched_pattern or 'pattern'}).",
+                        severity=RulePriority.CRITICAL,
+                        recommended_action=RecommendedAction.BLOCK_RESPONSE,
+                    )
 
     return RuleEvaluationResult(
         rule_id="RB-11",
@@ -440,7 +590,16 @@ def evaluate_rb12_handover_policy(context: PolicyEvaluationContext) -> RuleEvalu
 def evaluate_rb13_frontend_fallback_safety(
     context: PolicyEvaluationContext,
 ) -> RuleEvaluationResult:
-    """RB-13: Prohibit unverified frontend-generated official responses or synthetic citations."""
+    """RB-13: Prohibit unverified frontend-generated official responses or synthetic citations.
+
+    Boundary Note:
+        This evaluator enforces the backend policy contract. When the backend service is
+        offline or unavailable, the backend policy engine cannot execute at runtime in production;
+        client-side fallback remediation (e.g. Next.js mock responses in CandidateChatWorkspace)
+        is a presentation-layer concern explicitly deferred to Phase 1 Task 4.
+        When invoked in offline test scenarios or simulated backend failure mode, this rule
+        ensures that unverified official responses are strictly prohibited.
+    """
     if not context.backend_available:
         return RuleEvaluationResult(
             rule_id="RB-13",

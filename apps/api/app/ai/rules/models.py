@@ -74,6 +74,26 @@ class PolicyEvaluationContext(BaseModel):
     citation_items: list[Any] | None = Field(
         default=None, description="Emitted citation candidates."
     )
+    claim_verification_status: str | None = Field(
+        default=None,
+        description="Claim-level verification status: 'verified', 'unverified', or None/'not_run'.",
+    )
+    program_resolver_status: str | None = Field(
+        default=None,
+        description="Canonical program resolver status: 'canonical_match', 'ambiguous', 'not_found', 'untrusted', or None/'not_run'.",
+    )
+    citation_verification_status: str | None = Field(
+        default=None,
+        description="Citation catalog verifier status: 'verified', 'structural_only', 'failed', or None/'not_run'.",
+    )
+    attribution_verified: bool | None = Field(
+        default=None,
+        description="Whether general response has been verified free of ungrounded EPU attribution.",
+    )
+    pii_redacted: bool = Field(
+        default=False,
+        description="Whether sensitive identifiers detected in user input were safely redacted for downstream processing.",
+    )
     handover_requested: bool = Field(
         default=False, description="Whether user explicitly requested a human advisor."
     )

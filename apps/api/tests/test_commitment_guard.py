@@ -75,3 +75,40 @@ def test_check_commitment_result_structure() -> None:
     assert "chắc chắn đỗ" in res.matched_phrase.lower()
     assert res.is_negated is False
     assert "Forbidden admission guarantee detected" in res.reason
+
+
+def test_mixed_negated_and_positive_guarantees() -> None:
+    """Regression test: Negated guarantee early in text must NOT mask subsequent positive guarantee.
+
+    Verifies different phrase orderings and clause boundary isolation.
+    """
+    mixed_violation_cases = [
+        # Negated first, positive second (the exact review finding case)
+        "Nhà trường không cam kết trúng tuyển. Nhưng em chắc chắn đỗ.",
+        # Positive first, negated second
+        "Em chắc chắn đỗ. Nhưng nhà trường không cam kết trúng tuyển.",
+        # Negated first, positive second in contrastive comma clause
+        "Nhà trường không cam kết trúng tuyển, nhưng em chắc chắn đỗ.",
+        # Positive first, negated second in contrastive clause
+        "Em chắc chắn đỗ, tuy nhiên nhà trường không cam kết trúng tuyển.",
+        # Complex multi-clause sentence
+        "Mặc dù trường không cam kết trúng tuyển, bạn nộp hồ sơ sớm là bao đậu.",
+        # Multiple clauses with positive guarantee after newline
+        "Hội đồng tuyển sinh không cam kết trúng tuyển.\nEm yên tâm sẽ đỗ vào ngành Kỹ thuật điện.",
+    ]
+    for case in mixed_violation_cases:
+        res = check_commitment(case)
+        assert res.has_violation is True, f"Failed to detect positive guarantee in mixed text: '{case}'"
+        assert contains_forbidden_commitment(case) is True
+
+    # Multi-match text where ALL occurrences are properly negated
+    all_negated_cases = [
+        "Nhà trường không cam kết trúng tuyển và không bao giờ khẳng định sẽ đỗ.",
+        "Điểm chuẩn chưa công bố nên không thể chắc chắn đỗ và cũng không đảm bảo trúng tuyển.",
+        "Trường tuyệt đối không cam kết trúng tuyển và hoàn toàn không bao đậu.",
+    ]
+    for case in all_negated_cases:
+        res = check_commitment(case)
+        assert res.has_violation is False, f"False positive in all-negated multi-match: '{case}'"
+        assert res.is_negated is True
+        assert contains_forbidden_commitment(case) is False

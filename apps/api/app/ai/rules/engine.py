@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from app.ai.config.policy_config import PolicyConfig, load_policy_config
+from app.ai.config.policy_config import PolicyConfig, RulePriority, load_policy_config
 from app.ai.rules.evaluators import (
     evaluate_rb01_official_evidence,
     evaluate_rb02_program_resolution,
@@ -56,6 +56,11 @@ class RulebaseEngine:
             "RB-13": evaluate_rb13_frontend_fallback_safety,
         }
 
+        # Fail closed on missing configured evaluators at initialization
+        missing = [rid for rid in self.policy_config.rule_ids if rid not in self._registry]
+        if missing:
+            raise ValueError(f"Missing evaluator(s) for configured rule(s): {', '.join(missing)}")
+
     @property
     def registered_rule_ids(self) -> list[str]:
         """Return list of registered rule IDs in sequential order."""
@@ -68,9 +73,30 @@ class RulebaseEngine:
         # Iterate strictly in deterministic rule sequence
         for rule_id in self.policy_config.rule_ids:
             evaluator = self._registry.get(rule_id)
-            if evaluator is not None:
-                res = evaluator(context)
-                results.append(res)
+            cfg_rule = self.policy_config.get_rule(rule_id)
+            configured_priority = cfg_rule.priority if cfg_rule else RulePriority.HIGH
+
+            if evaluator is None:
+                # Fail closed on missing or unknown critical evaluator
+                results.append(
+                    RuleEvaluationResult(
+                        rule_id=rule_id,
+                        outcome=RuleOutcome.FAIL,
+                        reason_code="MISSING_RULE_EVALUATOR",
+                        message=f"Critical configuration error: Evaluator for rule {rule_id} is missing.",
+                        severity=configured_priority,
+                        recommended_action=RecommendedAction.SAFE_FALLBACK,
+                    )
+                )
+                continue
+
+            res = evaluator(context)
+
+            # Synchronize severity with YAML configuration
+            if cfg_rule and res.severity != configured_priority:
+                res = res.model_copy(update={"severity": configured_priority})
+
+            results.append(res)
 
         # 1. Determine overall outcome
         has_fail = any(r.outcome == RuleOutcome.FAIL for r in results)
@@ -106,10 +132,18 @@ class RulebaseEngine:
         results: list[RuleEvaluationResult],
         overall_outcome: RuleOutcome,
     ) -> RecommendedAction:
-        """Determine top-priority recommended action according to Phase 1 decision matrix."""
-        # Check Critical Security Violations first: Injection (RB-11) or Guarantee (RB-09)
+        """Determine top-priority recommended action according to Phase 1 decision matrix precedence.
+
+        Precedence hierarchy (rulebase-v1.yaml):
+        1. safety_and_privacy (RB-11, RB-09, RB-10, RB-13)
+        2. verified_evidence_and_temporal_validity (RB-01, RB-04, RB-05, RB-06)
+        3. ambiguity_and_source_classification (RB-03, RB-02, RB-08, RB-07)
+        4. answer_format_and_tone (RB-12)
+        """
+        # --- Layer 1: Safety and Privacy ---
+        # Critical security blocks: Injection (RB-11), Guarantee (RB-09), PII leak in draft (RB-10)
         for r in results:
-            if r.outcome == RuleOutcome.FAIL and r.rule_id in ("RB-11", "RB-09"):
+            if r.outcome == RuleOutcome.FAIL and r.recommended_action == RecommendedAction.BLOCK_RESPONSE:
                 return RecommendedAction.BLOCK_RESPONSE
 
         # Backend offline (RB-13)
@@ -117,26 +151,43 @@ class RulebaseEngine:
             if r.outcome == RuleOutcome.FAIL and r.rule_id == "RB-13":
                 return RecommendedAction.SAFE_FALLBACK
 
-        # Ambiguous Major (RB-03)
+        # Privacy violation / unmasked PII in user query (RB-10)
         for r in results:
-            if r.outcome == RuleOutcome.FAIL and r.rule_id == "RB-03":
-                return RecommendedAction.CLARIFICATION_NEEDED
-
-        # User Handover Requested (RB-12)
-        if context.handover_requested:
-            return RecommendedAction.HANDOVER_SUGGESTED
-
-        # Missing or Restricted Evidence (RB-01, RB-04, RB-06, RB-10)
-        for r in results:
-            if r.outcome == RuleOutcome.FAIL and r.rule_id in ("RB-01", "RB-04", "RB-06", "RB-10"):
+            if r.outcome == RuleOutcome.FAIL and r.rule_id == "RB-10":
                 return RecommendedAction.SAFE_FALLBACK
 
-        # Partial Evidence (RB-07)
+        # --- Layer 2: Verified Evidence and Temporal Validity ---
+        # Missing evidence (RB-01), restricted claims (RB-04), temporal mismatch (RB-05), citation failure (RB-06)
+        for r in results:
+            if r.outcome == RuleOutcome.FAIL and r.rule_id in ("RB-01", "RB-04", "RB-05", "RB-06"):
+                return RecommendedAction.SAFE_FALLBACK
+
+        # --- Layer 3: Ambiguity and Source Classification ---
+        # Ambiguous major (RB-03) or unresolvable program (RB-02)
+        for r in results:
+            if r.outcome == RuleOutcome.FAIL and r.rule_id in ("RB-03", "RB-02"):
+                return RecommendedAction.CLARIFICATION_NEEDED
+
+        # General knowledge attribution/citation failure (RB-08)
+        for r in results:
+            if r.outcome == RuleOutcome.FAIL and r.rule_id == "RB-08":
+                return RecommendedAction.SAFE_FALLBACK
+
+        # Partial evidence (RB-07)
         if context.evidence_status == "partial":
             return RecommendedAction.PARTIAL_ANSWER
 
-        # Non-evaluable critical rules must lead to safe fallback, not direct answer
+        # --- Layer 4: Answer Format and Tone ---
+        # User Handover Requested (RB-12) - evaluated only after safety and evidence rules pass
+        if context.handover_requested:
+            return RecommendedAction.HANDOVER_SUGGESTED
+
+        # --- Fallback Handling ---
+        # Non-evaluable rules must lead to safe fallback, never direct answer
         if overall_outcome == RuleOutcome.NOT_EVALUABLE:
+            return RecommendedAction.SAFE_FALLBACK
+
+        if overall_outcome == RuleOutcome.FAIL:
             return RecommendedAction.SAFE_FALLBACK
 
         return RecommendedAction.DIRECT_ANSWER

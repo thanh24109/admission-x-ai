@@ -38,10 +38,15 @@ _GUARANTEE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\bkhẳng\s+định\s+(sẽ\s+)?(đỗ|trúng\s+tuyển|đậu)\b", re.IGNORECASE),
 )
 
-# Negation prefix pattern: words like "không", "chưa", "không thể", "không thể khẳng định" preceding guarantee
+# Negation prefix pattern: words like "không", "chưa", "không thể", "tuyệt đối không" preceding guarantee
 _NEGATION_PREFIX_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"\b(không|chưa|chưa\s+thể|không\s+thể|không\s+bao\s+giờ|không\s+có\s+chuyện|khó\s+có\s+thể|không\s+dám)(\s+[^\W\d_]+){0,3}\s*$",
+    r"\b(không|chưa|chưa\s+thể|không\s+thể|không\s+bao\s+giờ|không\s+có\s+chuyện|khó\s+có\s+thể|không\s+dám|tuyệt\s+đối\s+không|hoàn\s+toàn\s+không)(\s+[^\W\d_]+){0,3}\s*$",
     re.IGNORECASE,
+)
+
+# Contrastive conjunctions breaking negation scope across clauses
+_CONTRAST_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\b(nhưng|tuy\s+nhiên|song|thế\s+nhưng)\b", re.IGNORECASE
 )
 
 
@@ -60,6 +65,8 @@ def check_commitment(text: str) -> CommitmentCheckResult:
 
     Identifies positive promises while avoiding false positives on negated or
     cautionary statements (e.g. 'nhà trường không cam kết trúng tuyển').
+    Scans all matches across the text so that a negated guarantee in one sentence
+    or clause does not mask a positive guarantee elsewhere in the same text.
 
     Args:
         text: Input draft answer or statement to inspect.
@@ -70,28 +77,66 @@ def check_commitment(text: str) -> CommitmentCheckResult:
     if not text or not text.strip():
         return CommitmentCheckResult(has_violation=False)
 
+    raw_matches: list[tuple[int, int, str]] = []
     for pattern in _GUARANTEE_PATTERNS:
         for match in pattern.finditer(text):
-            start = match.start()
-            prefix = text[max(0, start - 30) : start].strip()
+            raw_matches.append((match.start(), match.end(), match.group(0)))
 
-            if _NEGATION_PREFIX_PATTERN.search(prefix):
-                # Matched phrase is explicitly negated
-                return CommitmentCheckResult(
-                    has_violation=False,
-                    matched_phrase=match.group(0),
-                    is_negated=True,
-                    reason=f"Negated guarantee expression: '{prefix} {match.group(0)}'",
-                )
+    if not raw_matches:
+        return CommitmentCheckResult(has_violation=False)
 
+    # Sort matches by start position
+    raw_matches.sort(key=lambda x: x[0])
+
+    # De-duplicate overlapping matches (keep earliest)
+    filtered_matches: list[tuple[int, int, str]] = []
+    current_end = -1
+    for start, end, phrase in raw_matches:
+        if start >= current_end:
+            filtered_matches.append((start, end, phrase))
+            current_end = end
+
+    negated_matches: list[tuple[str, str]] = []
+
+    for start, _end, matched_phrase in filtered_matches:
+        # Determine clause boundary to ensure negation prefix does not span across sentences
+        last_boundary = max(
+            text.rfind(".", 0, start),
+            text.rfind("!", 0, start),
+            text.rfind("?", 0, start),
+            text.rfind(";", 0, start),
+            text.rfind("\n", 0, start),
+        )
+        clause_start = 0 if last_boundary == -1 else last_boundary + 1
+        raw_prefix = text[clause_start:start]
+
+        # Contrastive words break prior negation scope
+        contrast_matches = list(_CONTRAST_PATTERN.finditer(raw_prefix))
+        if contrast_matches:
+            raw_prefix = raw_prefix[contrast_matches[-1].end() :]
+
+        clause_prefix = raw_prefix[-40:].strip()
+
+        if _NEGATION_PREFIX_PATTERN.search(clause_prefix):
+            negated_matches.append((matched_phrase, clause_prefix))
+        else:
             # Positive forbidden commitment detected
-            matched_phrase = match.group(0)
             return CommitmentCheckResult(
                 has_violation=True,
                 matched_phrase=matched_phrase,
                 is_negated=False,
                 reason=f"Forbidden admission guarantee detected: '{matched_phrase}'",
             )
+
+    # All matched guarantee expressions were explicitly negated
+    if negated_matches:
+        first_phrase, first_prefix = negated_matches[0]
+        return CommitmentCheckResult(
+            has_violation=False,
+            matched_phrase=first_phrase,
+            is_negated=True,
+            reason=f"Negated guarantee expression: '{first_prefix} {first_phrase}'",
+        )
 
     return CommitmentCheckResult(has_violation=False)
 
