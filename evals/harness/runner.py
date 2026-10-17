@@ -1,7 +1,7 @@
 """CLI Evaluation Runner for Admission X AI.
 
 Offline, reproducible runner executing deterministic evaluation suites.
-Follows Phase 1 Task 5 Section 11.
+Follows Phase 1 Task 5 Section 11 and Task 5.1 audit requirements.
 """
 
 from __future__ import annotations
@@ -17,10 +17,14 @@ from evals.harness.adapters.policy_adapter import PolicyEvaluationAdapter
 from evals.harness.loader import load_golden_dataset
 from evals.harness.metrics import compute_all_metrics
 from evals.harness.models import (
+    AdapterSummary,
+    DatasetTier,
     EvaluationResult,
     EvaluationResultStatus,
     EvaluationSuiteResult,
     GoldenCase,
+    ScenarioSummary,
+    TierCoverage,
 )
 from evals.harness.report import export_json_report, export_markdown_report
 from evals.harness.validator import validate_dataset_file
@@ -42,38 +46,112 @@ def run_evaluation_suite(
         output_dir: Optional output directory for JSON and Markdown reports.
 
     Returns:
-        EvaluationSuiteResult instance.
+        EvaluationSuiteResult instance with honest accounting.
     """
     cases: list[GoldenCase] = load_golden_dataset(dataset_path, category=category)
     results: list[EvaluationResult] = []
+    unsupported_case_ids: list[str] = []
 
-    # Configure adapters
+    # Configure adapters - mode 'all' registers Policy, Decision, and Contract adapters
     adapters = []
     if mode in {"all", "policy"}:
         adapters.append(PolicyEvaluationAdapter())
     if mode in {"all", "decision"}:
         adapters.append(DecisionEvaluationAdapter())
-    if mode in {"contract"}:
+    if mode in {"all", "contract"}:
         adapters.append(ResponseContractEvaluationAdapter())
 
     for case in cases:
+        matching_adapters_for_case = 0
         for adapter in adapters:
             if adapter.supports_case(case):
+                matching_adapters_for_case += 1
                 res = adapter.evaluate(case)
                 results.append(res)
 
-    # Compute metrics & breakdown
-    total_results = len(results)
-    passed = sum(1 for r in results if r.result == EvaluationResultStatus.PASS)
-    failed = sum(1 for r in results if r.result == EvaluationResultStatus.FAIL)
-    not_evaluable = sum(1 for r in results if r.result == EvaluationResultStatus.NOT_EVALUABLE)
-    errors = sum(1 for r in results if r.result == EvaluationResultStatus.ERROR)
+        # Do not silently drop scenarios with no compatible adapter
+        if matching_adapters_for_case == 0:
+            unsupported_case_ids.append(case.id)
+            results.append(
+                EvaluationResult(
+                    case_id=case.id,
+                    dataset_version=case.dataset_version,
+                    adapter_name="none",
+                    evaluation_type="unsupported",
+                    result=EvaluationResultStatus.NOT_EVALUABLE,
+                    expected_behavior=case.expected_behavior,
+                    observed_behavior="unsupported_no_adapter",
+                    skipped_reasons=[
+                        f"No compatible evaluation adapter registered in mode '{mode}' for scenario '{case.id}'"
+                    ],
+                    ground_truth_status=case.ground_truth_status,
+                )
+            )
+
+    # 1. Adapter-level accounting (evaluation counts)
+    adapter_breakdown: dict[str, AdapterSummary] = {}
+    for adapter in adapters:
+        a_name = adapter.name
+        a_results = [r for r in results if r.adapter_name == a_name]
+        adapter_breakdown[a_name] = AdapterSummary(
+            total_evaluations=len(a_results),
+            passed=sum(1 for r in a_results if r.result == EvaluationResultStatus.PASS),
+            failed=sum(1 for r in a_results if r.result == EvaluationResultStatus.FAIL),
+            not_evaluable=sum(1 for r in a_results if r.result == EvaluationResultStatus.NOT_EVALUABLE),
+            error=sum(1 for r in a_results if r.result == EvaluationResultStatus.ERROR),
+        )
+
+    # 2. Scenario-level accounting (deduplicated across adapters)
+    scenario_results: dict[str, list[EvaluationResult]] = defaultdict(list)
+    for r in results:
+        scenario_results[r.case_id].append(r)
+
+    passed_scenarios = 0
+    failed_scenarios = 0
+    not_evaluable_scenarios = 0
+    error_scenarios = 0
+
+    for case in cases:
+        c_res = scenario_results.get(case.id, [])
+        if not c_res:
+            continue
+        # Precedence: FAIL > ERROR > PASS > NOT_EVALUABLE
+        if any(r.result == EvaluationResultStatus.FAIL for r in c_res):
+            failed_scenarios += 1
+        elif any(r.result == EvaluationResultStatus.ERROR for r in c_res):
+            error_scenarios += 1
+        elif any(r.result == EvaluationResultStatus.PASS for r in c_res):
+            passed_scenarios += 1
+        elif all(r.result == EvaluationResultStatus.NOT_EVALUABLE for r in c_res):
+            not_evaluable_scenarios += 1
+
+    scenario_summary = ScenarioSummary(
+        total_scenarios=len(cases),
+        passed_scenarios=passed_scenarios,
+        failed_scenarios=failed_scenarios,
+        not_evaluable_scenarios=not_evaluable_scenarios,
+        error_scenarios=error_scenarios,
+        unsupported_scenarios=len(unsupported_case_ids),
+    )
+
+    # 3. Tier coverage
+    tier_coverage = TierCoverage(
+        total_cases=len(cases),
+        tier_a_policy_only=sum(1 for c in cases if c.tier == DatasetTier.TIER_A_POLICY),
+        tier_b_pending_factual=sum(1 for c in cases if c.tier == DatasetTier.TIER_B_PENDING_FACTUAL),
+        tier_c_synthetic=sum(1 for c in cases if c.tier == DatasetTier.TIER_C_SYNTHETIC),
+    )
+
+    # Backward compatibility counters (evaluations-level)
+    passed_evals = sum(1 for r in results if r.result == EvaluationResultStatus.PASS)
+    failed_evals = sum(1 for r in results if r.result == EvaluationResultStatus.FAIL)
+    not_evaluable_evals = sum(1 for r in results if r.result == EvaluationResultStatus.NOT_EVALUABLE)
+    error_evals = sum(1 for r in results if r.result == EvaluationResultStatus.ERROR)
 
     metrics = compute_all_metrics(results)
 
     cat_breakdown: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "pass": 0, "fail": 0, "not_evaluable": 0, "error": 0})
     for r in results:
-        # Lookup original category by case_id prefix or case search
         cat = "general"
         for c in cases:
             if c.id == r.case_id:
@@ -91,12 +169,18 @@ def run_evaluation_suite(
 
     suite_result = EvaluationSuiteResult(
         dataset_version=Path(dataset_path).stem,
+        total_scenarios=len(cases),
+        scenario_summary=scenario_summary,
+        total_adapter_evaluations=len(results),
+        adapter_breakdown=adapter_breakdown,
+        tier_coverage=tier_coverage,
+        unsupported_case_ids=unsupported_case_ids,
         total_cases=len(cases),
-        evaluated_cases=passed + failed,
-        passed_cases=passed,
-        failed_cases=failed,
-        not_evaluable_cases=not_evaluable,
-        error_cases=errors,
+        evaluated_cases=passed_evals + failed_evals,
+        passed_cases=passed_evals,
+        failed_cases=failed_evals,
+        not_evaluable_cases=not_evaluable_evals,
+        error_cases=error_evals,
         metrics=metrics,
         category_breakdown=dict(cat_breakdown),
         results=results,
@@ -104,7 +188,7 @@ def run_evaluation_suite(
             "mode": mode,
             "category_filter": category or "all",
             "adapters": [a.name for a in adapters],
-            "total_case_evaluations": total_results,
+            "total_case_evaluations": len(results),
         },
     )
 
@@ -131,7 +215,9 @@ def run_evaluation(
         category=category,
         output_dir=output_dir,
     )
-    exit_code = 1 if (strict and (suite.failed_cases > 0 or suite.error_cases > 0)) else 0
+    # Fail strictly on any failure or error in either scenario or evaluation level
+    has_failures = suite.scenario_summary.failed_scenarios > 0 or suite.scenario_summary.error_scenarios > 0
+    exit_code = 1 if (strict and has_failures) else 0
     return exit_code, suite
 
 
@@ -157,7 +243,7 @@ def main() -> int:
         "--category",
         type=str,
         default=None,
-        help="Filter evaluation to a specific category (major, curriculum, missing, etc.)",
+        help="Filter evaluation to a specific category",
     )
     parser.add_argument(
         "--output",
@@ -179,44 +265,50 @@ def main() -> int:
     if not val_report.is_valid:
         print(f"[!] Dataset integrity validation FAILED:\n{val_report.summary()}", file=sys.stderr)
         return 1
-    print(f"[+] Dataset integrity validated successfully ({val_report.total_cases} cases).")
+    print(f"[+] Dataset integrity OK: {val_report.total_cases} cases verified.")
 
-    # Step 2: Execute Evaluation Suite
-    print(f"[*] Running evaluation suite in mode='{args.mode}'...")
-    suite_result = run_evaluation_suite(
+    # Step 2: Run Evaluation
+    print(f"[*] Running deterministic evaluation (mode={args.mode}, category={args.category or 'all'})...")
+    exit_code, suite = run_evaluation(
         args.dataset,
         mode=args.mode,
         category=args.category,
         output_dir=args.output,
+        strict=args.strict,
     )
 
     # Step 3: Print Human-Readable Terminal Summary
     print("\n" + "=" * 60)
-    print(" EVALUATION EXECUTION SUMMARY ")
+    print("           ADMISSION X AI — EVALUATION SUMMARY")
     print("=" * 60)
-    print(f"Total Cases:         {suite_result.total_cases}")
-    print(f"Evaluations Run:     {len(suite_result.results)}")
-    print(f"Passed:              {suite_result.passed_cases}")
-    print(f"Failed:              {suite_result.failed_cases}")
-    print(f"Not Evaluable:       {suite_result.not_evaluable_cases} (Tier B pending PDF verification)")
-    print(f"Errors:              {suite_result.error_cases}")
-    print("-" * 60)
-    print("Metrics:")
-    for m_name, m_val in suite_result.metrics.items():
-        val_str = f"{m_val.value * 100:.1f}%" if m_val.value is not None else "N/A"
-        print(f"  {m_name:35} : {val_str:8} [{m_val.status.value}]")
-    print("=" * 60)
+    print(f"Dataset Version         : {suite.dataset_version}")
+    print(f"Total Scenarios         : {suite.scenario_summary.total_scenarios}")
+    print(f"Passed Scenarios        : {suite.scenario_summary.passed_scenarios}")
+    print(f"Failed Scenarios        : {suite.scenario_summary.failed_scenarios}")
+    print(f"NOT_EVALUABLE Scenarios : {suite.scenario_summary.not_evaluable_scenarios} (pending verified PDF)")
+    print(f"Unsupported Scenarios   : {suite.scenario_summary.unsupported_scenarios}")
+    print(f"Total Adapter Evals     : {suite.total_adapter_evaluations}")
 
+    print("\n[Per-Adapter Breakdown]")
+    for a_name, a_sum in suite.adapter_breakdown.items():
+        print(f"  - {a_name:<20}: {a_sum.total_evaluations} runs [PASS={a_sum.passed}, FAIL={a_sum.failed}, NOT_EVALUABLE={a_sum.not_evaluable}, ERROR={a_sum.error}]")
+
+    print("\n[Metrics Summary]")
+    for m_name, m_val in suite.metrics.items():
+        val_display = f"{m_val.value * 100:.1f}%" if m_val.value is not None else "N/A"
+        denom_display = f"({m_val.numerator}/{m_val.denominator})" if m_val.denominator is not None else ""
+        print(f"  - {m_name:<34}: {val_display:<6} {denom_display:<10} [{m_val.status.value}]")
+
+    print("=" * 60)
     if args.output:
-        print(f"[+] Reports saved to: {args.output}/report.json and report.md")
+        print(f"[+] Reports exported to {args.output}/ (report.json, report.md)")
 
-    # Exit code determination
-    if suite_result.failed_cases > 0 or suite_result.error_cases > 0:
-        print("[!] Evaluation finished with FAILURES or ERRORS.", file=sys.stderr)
-        return 1
+    if exit_code != 0:
+        print(f"[!] Evaluation suite failed strict regression gates (Exit Code: {exit_code}).", file=sys.stderr)
+    else:
+        print("[+] Evaluation completed successfully.")
 
-    print("[+] All executable evaluations PASSED.")
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

@@ -153,6 +153,10 @@ class GoldenCase(BaseModel):
         default=None,
         description="Type of fixture: 'golden', 'synthetic', 'regression'.",
     )
+    controlled_context: dict[str, Any] | None = Field(
+        default=None,
+        description="Explicit independently defined context for controlled policy/decision evaluation.",
+    )
 
     @property
     def tier(self) -> DatasetTier:
@@ -200,6 +204,8 @@ class EvaluationResult(BaseModel):
     prompt_version: str = "1.0.0"
     execution_time_ms: float = 0.0
     observation: EvaluationObservation | None = None
+    is_controlled_fixture: bool = False
+    notes: str | None = None
 
 
 class MetricValue(BaseModel):
@@ -215,19 +221,73 @@ class MetricValue(BaseModel):
     reason: str | None = None
 
 
+class AdapterSummary(BaseModel):
+    """Breakdown of evaluation results for a specific adapter."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_evaluations: int = 0
+    passed: int = 0
+    failed: int = 0
+    not_evaluable: int = 0
+    error: int = 0
+
+
+class ScenarioSummary(BaseModel):
+    """Scenario-level outcome accounting (deduplicated across adapters)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_scenarios: int = 0
+    passed_scenarios: int = 0
+    failed_scenarios: int = 0
+    not_evaluable_scenarios: int = 0
+    error_scenarios: int = 0
+    unsupported_scenarios: int = 0
+
+
+class TierCoverage(BaseModel):
+    """Dataset tier coverage breakdown."""
+
+    model_config = ConfigDict(frozen=True)
+
+    total_cases: int = 0
+    tier_a_policy_only: int = 0
+    tier_b_pending_factual: int = 0
+    tier_c_synthetic: int = 0
+
+
 class EvaluationSuiteResult(BaseModel):
     """Aggregate result of an entire evaluation execution run."""
 
     model_config = ConfigDict(frozen=True)
 
     dataset_version: str
+
+    # Scenario-level accounting (unique scenario count)
+    total_scenarios: int
+    scenario_summary: ScenarioSummary
+
+    # Adapter-level accounting (evaluations count)
+    total_adapter_evaluations: int
+    adapter_breakdown: dict[str, AdapterSummary]
+
+    # Tier coverage
+    tier_coverage: TierCoverage
+
+    # Unsupported scenario IDs (no matching adapter)
+    unsupported_case_ids: list[str] = Field(default_factory=list)
+
+    # Backward compatibility fields (evaluations-level)
     total_cases: int
     evaluated_cases: int
     passed_cases: int
     failed_cases: int
     not_evaluable_cases: int
     error_cases: int
+
     metrics: dict[str, MetricValue]
     category_breakdown: dict[str, dict[str, int]]
     results: list[EvaluationResult]
     execution_metadata: dict[str, Any]
+

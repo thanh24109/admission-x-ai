@@ -447,3 +447,131 @@ Ran all test suites.
 ## 20. Kết luận
 
 Task 5 đã hoàn thành toàn bộ các yêu cầu khắt khe của Phase 1. Hệ thống sở hữu một khung đánh giá hồi quy tất định mạnh mẽ, bảo đảm tính trung thực khoa học, không có bất kỳ hành vi bịa đặt điểm số hay che giấu lỗi kỹ thuật nào. Mã nguồn đã sẵn sàng cho bước kiểm toán độc lập (Independent Code Audit).
+
+---
+
+## 21. Task 5.1 — Evaluation Correctness & Metric Integrity Fixes
+
+Sau đợt kiểm toán độc lập đối với SHA `cecbe04`, chúng tôi đã tiến hành khắc phục triệt để các vấn đề về tính đúng đắn của khung đánh giá, độ phủ adapter và tính trung thực của các bộ chỉ số đo lường.
+
+### 21.1. Danh sách tệp thay đổi trong Task 5.1 (Exact Changed Files)
+1. `evals/harness/models.py`: Bổ sung `controlled_context` cho `GoldenCase`, `is_controlled_fixture` và `notes` cho `EvaluationResult`, bổ sung các mô hình phân tách kế toán `ScenarioSummary`, `AdapterSummary`, `TierCoverage`, cập nhật `EvaluationSuiteResult`.
+2. `evals/harness/adapters/fixtures.py`: Tạo tệp mới định nghĩa bảng ánh xạ `CONTROLLED_POLICY_FIXTURES` chứa các đối tượng `PolicyEvaluationContext` độc lập, rõ ràng cho 35 kịch bản Tier A, xóa bỏ việc suy đoán trạng thái động từ từ khóa câu hỏi.
+3. `evals/harness/adapters/policy_adapter.py`: Tách bạch rõ ràng giữa kịch bản controlled fixture (`is_controlled_fixture=True`, `evaluation_type="policy_controlled"`) và kịch bản ngôn ngữ tự nhiên thuần túy (được đánh dấu minh bạch là `NOT_EVALUABLE` do Phase 1 chưa có NLU/retriever runtime).
+4. `evals/harness/adapters/decision_adapter.py`: Cập nhật logic phân tách ngữ cảnh tương tự, kết nối trực tiếp `DecisionEngine` và ghi nhận rõ ràng `evaluation_mode: "controlled_context"`.
+5. `evals/harness/adapters/contract_adapter.py`: Bổ sung `EvaluationObservation` hoàn chỉnh và cờ `is_controlled_fixture=True`.
+6. `evals/harness/validator.py`: Thắt chặt thẩm định trạng thái `verified`: bắt buộc phải có đủ 5 trường định danh chứng cứ (`source_document_id`, `source_hash`, `verified_passage_id`, `reviewer_reference`, `reviewed_at`); cấm tự phong quyền xác thực từ một trường đơn lẻ.
+7. `evals/harness/metrics.py`: Tái cấu trúc toàn bộ các hàm đo lường; xóa bỏ hoàn toàn việc kiểm tra chuỗi con (`substring in failure_reasons`); sử dụng trường có cấu trúc; thiết lập mẫu số phù hợp cho từng adapter; trả về `NOT_EVALUABLE` khi không có lượt đánh giá tương ứng (tránh báo cáo khống an toàn trích dẫn và hợp đồng phản hồi); cài đặt cơ chế negative control (kết quả `FAIL` hoặc `ERROR` tuyệt đối không làm tăng tử số).
+8. `evals/harness/runner.py`: Cập nhật `--mode all` đăng ký đầy đủ cả 3 adapters (`PolicyEvaluationAdapter`, `DecisionEvaluationAdapter`, `ResponseContractEvaluationAdapter`); thực thi đúng adapter tương thích; không bỏ rơi kịch bản không có adapter (ghi nhận `unsupported_no_adapter`); tách biệt đếm số kịch bản duy nhất và số lượt đánh giá adapter.
+9. `evals/harness/report.py`: Cập nhật báo cáo Markdown và JSON hiển thị bảng phân tầng dữ liệu, bảng chi tiết theo adapter, bảng kịch bản duy nhất và bảng chỉ số trung thực.
+10. `evals/harness/tests/test_runner.py`: Bổ sung regression test kiểm tra `--mode all` bắt buộc đăng ký `contract_adapter`, kiểm tra kế toán phân tách kịch bản vs lượt đánh giá, kiểm tra ghi nhận kịch bản không có adapter.
+11. `evals/harness/tests/test_metrics.py`: Bổ sung negative control tests (FAIL/ERROR không thể làm tăng tử số compliance), kiểm tra observation=None không được coi là an toàn, kiểm tra trả về `NOT_EVALUABLE` khi không có đánh giá liên quan.
+12. `evals/harness/tests/test_adapters.py`: Bổ sung test chứng minh nhãn kỳ vọng (`expected_behavior`) không tự quyết định kết quả quan sát; kiểm tra gắn nhãn `is_controlled_fixture`.
+13. `evals/harness/tests/test_dataset_validation.py`: Bổ sung test từ chối trường tự phong đơn lẻ và test chấp thuận khi có đủ 5 trường chứng cứ.
+14. `.github/workflows/backend-ci.yml`: Bổ sung biến môi trường `PYTHONPATH: apps/api:.` bảo đảm tương thích trên môi trường Linux CI.
+
+---
+
+### 21.2. Khắc phục chi tiết từng phát hiện kiểm toán
+
+#### P1 — Sửa lỗi `--mode all` và Đăng ký Adapter
+- Trong `runner.py`, `--mode all` hiện đăng ký đầy đủ: `PolicyEvaluationAdapter`, `DecisionEvaluationAdapter`, và `ResponseContractEvaluationAdapter`.
+- Mỗi kịch bản chỉ chạy qua các adapter tương thích (`adapter.supports_case(case)`).
+- Nếu một kịch bản không có adapter tương thích nào, hệ thống không bỏ rơi trong im lặng mà ghi nhận vào `suite.unsupported_case_ids` kèm kết quả `NOT_EVALUABLE` và lý do rõ ràng.
+- Đã thêm kiểm thử hồi quy `test_runner_mode_all_registers_contract_adapter` bảo đảm nếu thiếu `contract_adapter` thì CI sẽ lập tức thất bại.
+
+#### P1 — Làm cho các chỉ số đo lường trung thực (Truthful Metrics)
+- Xóa bỏ hoàn toàn việc suy diễn tuân thủ từ chuỗi con (`substring in failure_reasons`).
+- Sử dụng các trường có cấu trúc: `r.evaluation_type`, `r.result`, `r.observation`.
+- Phân biệt rõ ràng giữa `FAIL`, `ERROR` và `NOT_EVALUABLE`.
+- Mẫu số chuẩn xác:
+  - `response_contract_compliance_rate`: Mẫu số chỉ tính các ca do `contract_adapter` thực thi. Khi chạy bộ dữ liệu text thông thường, chỉ số này trả về `value=None, status="NOT_EVALUABLE"` kèm lý do trung thực: *"No response contract evaluations ran in this suite"*.
+  - `citation_safety_rate`: Mẫu số chỉ tính các ca có thẩm định trích dẫn thực tế. Trả về `NOT_EVALUABLE` khi không có ca trích dẫn nào được đánh giá, thay vì báo cáo khống 70/70.
+  - `policy_compliance_rate`: Mẫu số là 35 lượt đánh giá chính sách thực tế (35/35 = 100%).
+- Đã bổ sung negative controls: một kết quả `FAIL` hoặc `ERROR` chỉ làm tăng mẫu số, tuyệt đối không bao giờ làm tăng tử số hợp lệ.
+- Trường hợp thiếu `observation` (`None`) không bao giờ được coi là chứng cứ của sự an toàn.
+
+#### P1 — Phân tách Fixture có Kiểm soát và Đánh giá E2E Ngôn ngữ tự nhiên
+- Xóa bỏ việc sửa chuỗi câu hỏi hoặc đoán trạng thái từ từ khóa trong `policy_adapter.py`.
+- Tạo `CONTROLLED_POLICY_FIXTURES` cung cấp ngữ cảnh độc lập, bất biến cho 35 ca Tier A.
+- Khi đánh giá với controlled fixture, kết quả được gắn nhãn minh bạch: `is_controlled_fixture = True`, `evaluation_type = "policy_controlled" / "decision_controlled"`.
+- Báo cáo và kết quả ghi rõ: *"Evaluated with explicit controlled PolicyEvaluationContext fixture... Does not claim end-to-end natural-language understanding of the raw question alone."*
+- Nếu một kịch bản câu hỏi tự nhiên không có fixture kiểm soát và chưa có runtime NLU/retrieval, hệ thống xếp loại chiều kích E2E là `NOT_EVALUABLE` thay vì bịa đặt đầu vào giả lập.
+- Bổ sung kiểm thử `test_golden_expected_labels_do_not_determine_observed_result`: chứng minh nếu đầu ra thực tế của engine vi phạm kỳ vọng (ví dụ: trả về `answer` khi kỳ vọng `abstain`), evaluator sẽ phát hiện lỗi và chấm `FAIL`.
+
+#### P2 — Thắt chặt thẩm định Chứng cứ Sự thật Đã kiểm chứng (Verified Ground Truth)
+- Trong `validator.py`, một kịch bản chỉ có thể mang trạng thái `ground_truth_status = "verified"` khi có đầy đủ 5 trường chứng cứ:
+  1. `source_document_id`: Mã văn bản chính thức EPU.
+  2. `source_hash`: Mã băm mật mã SHA-256 của tệp PDF.
+  3. `verified_passage_id`: Mã định danh đoạn trích dẫn đã thẩm định.
+  4. `reviewer_reference`: Mã định danh chuyên gia/cán bộ tuyển sinh thẩm định.
+  5. `reviewed_at`: Thời gian thẩm định.
+- Việc cung cấp một trường đơn lẻ (ví dụ chỉ có `source_document_id`) sẽ bị từ chối ngay lập tức với thông báo lỗi toàn vẹn.
+
+#### P2 — Hiệu chỉnh Kế toán Báo cáo Đánh giá (Report Accounting)
+- Tách bạch hoàn toàn:
+  - **Kế toán kịch bản duy nhất (Unique Scenarios):** 80 kịch bản = 35 Đạt (`PASSED`) + 45 Chưa thể đánh giá (`NOT_EVALUABLE` do chờ PDF) + 0 Không đạt + 0 Lỗi + 0 Unsupported.
+  - **Kế toán lượt chạy bộ điều hợp (Adapter Evaluations):** 160 lượt chạy (80 lượt `policy_adapter` + 80 lượt `decision_adapter`).
+  - **Bảng chi tiết từng adapter (Per-Adapter Breakdown):** Thể hiện rõ số lượt chạy và kết quả của từng adapter.
+  - **Bảng phân tầng dữ liệu (Tier Coverage):** 35 Tier A (43.8%), 45 Tier B (56.2%), 0 Tier C.
+- Báo cáo JSON và Markdown sử dụng cùng một cấu trúc dữ liệu và số liệu kế toán đồng nhất.
+
+---
+
+### 21.3. Kết quả Đo lường Đánh giá Thực tế (Task 5.1 Run)
+
+Lệnh thực thi:
+```bash
+python -m evals.harness.runner --dataset evals/datasets/golden_admission_v1.jsonl --mode all --strict --output evals/reports/task-5
+```
+
+```text
+============================================================
+           ADMISSION X AI — EVALUATION SUMMARY
+============================================================
+Dataset Version         : golden_admission_v1
+Total Scenarios         : 80
+Passed Scenarios        : 35
+Failed Scenarios        : 0
+NOT_EVALUABLE Scenarios : 45 (pending verified PDF)
+Unsupported Scenarios   : 0
+Total Adapter Evals     : 160
+
+[Per-Adapter Breakdown]
+  - policy_adapter      : 80 runs [PASS=35, FAIL=0, NOT_EVALUABLE=45, ERROR=0]
+  - decision_adapter    : 80 runs [PASS=35, FAIL=0, NOT_EVALUABLE=45, ERROR=0]
+  - contract_adapter    : 0 runs [PASS=0, FAIL=0, NOT_EVALUABLE=0, ERROR=0]
+
+[Metrics Summary]
+  - behavior_compliance_rate          : 100.0% (70/70)    [PASS]
+  - policy_compliance_rate            : 100.0% (35/35)    [PASS]
+  - safe_abstention_rate              : 100.0% (30/30)    [PASS]
+  - citation_safety_rate              : N/A    (0/0)      [NOT_EVALUABLE]
+  - handover_safety_rate              : 100.0% (19/19)    [PASS]
+  - response_contract_compliance_rate : N/A    (0/0)      [NOT_EVALUABLE]
+  - missing_facts_safety_rate         : 100.0% (30/30)    [PASS]
+  - retrieval_recall_at_5             : N/A               [NOT_EVALUABLE]
+  - factual_answer_correctness        : N/A               [NOT_EVALUABLE]
+  - citation_precision                : N/A               [NOT_EVALUABLE]
+  - groundedness_score                : N/A               [NOT_EVALUABLE]
+  - hallucination_rate                : N/A               [NOT_EVALUABLE]
+============================================================
+[+] Reports exported to evals/reports/task-5/ (report.json, report.md)
+[+] Evaluation completed successfully.
+```
+
+---
+
+### 21.4. Kết quả Kiểm thử Tự động Sau Sửa Đổi
+- **Backend & Evaluation Pytest:** **225 passed in 8.54s** (178 backend tests + 47 harness tests, tăng 9 tests kiểm tra hồi quy).
+- **Ruff Linter & Formatter:** **All checks passed!**
+- **Frontend Jest Tests:** **29 passed in 264ms**.
+- **Exit Code:** `0` (Success).
+
+---
+
+### 21.5. Giới hạn đã biết và Rủi ro còn lại
+- Toàn bộ 45 kịch bản Tier B (chương trình đào tạo, đối sánh ngành) được bảo lưu trạng thái `NOT_EVALUABLE` một cách trung thực cho tới khi hoàn tất quy trình thẩm định 10 bước gắn PDF và SHA-256 ở Phase 2.
+- Các chỉ số truy xuất (`retrieval_recall_at_5`, `citation_precision`) và chỉ số ảo giác (`hallucination_rate`) tiếp tục giữ nguyên `NOT_EVALUABLE` do hệ thống chưa tích hợp RAG pipeline và LLM generator.
+- 0 rủi ro P0/P1 tồn đọng trong khung đánh giá tất định.
+

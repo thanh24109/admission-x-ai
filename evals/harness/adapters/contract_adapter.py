@@ -31,6 +31,7 @@ from app.schemas.response_envelope import (
 from evals.harness.adapters.base import EvaluationAdapter
 from evals.harness.models import (
     DatasetTier,
+    EvaluationObservation,
     EvaluationResult,
     EvaluationResultStatus,
     GoldenCase,
@@ -151,6 +152,23 @@ class ResponseContractEvaluationAdapter(EvaluationAdapter):
                 else EvaluationResultStatus.PASS
             )
 
+            observation = EvaluationObservation(
+                action="contract_verify",
+                answer_status="answered",
+                evidence_status="supported",
+                citations_count=1,
+                ticket_created=False,
+                raw_output={
+                    "contract_verified": status == EvaluationResultStatus.PASS,
+                    "tested_components": [
+                        "HandoverInfo",
+                        "AIResponseEnvelope",
+                        "to_legacy_chat_response",
+                        "ContractCitationVerifier",
+                    ],
+                },
+            )
+
             return EvaluationResult(
                 case_id=case.id,
                 dataset_version=case.dataset_version,
@@ -162,6 +180,8 @@ class ResponseContractEvaluationAdapter(EvaluationAdapter):
                 failure_reasons=failure_reasons,
                 ground_truth_status=case.ground_truth_status,
                 execution_time_ms=elapsed_ms,
+                observation=observation,
+                is_controlled_fixture=True,
             )
 
         except Exception as exc:  # noqa: BLE001

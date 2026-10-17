@@ -120,19 +120,52 @@ def test_reject_synthetic_case_marked_verified() -> None:
     assert any("Synthetic fixture cannot have ground_truth_status" in err for err in report.errors)
 
 
-def test_reject_verified_factual_without_provenance() -> None:
-    """Verify that claiming verified requires reviewer and source document references."""
-    case = GoldenCase(
+def test_reject_verified_factual_without_complete_provenance() -> None:
+    """Task 5.1 P2 requirement: Do not allow verified status based on single self-asserted metadata."""
+    # 1. Totally missing provenance
+    case_empty = GoldenCase(
         id="fact-01",
         category="curriculum",
         question="Số tín chỉ ngành CNTT?",
         expected_behavior="grounded_answer_or_abstain",
         ground_truth_status=GroundTruthStatus.VERIFIED.value,
-        # Missing reviewer_reference, source_document_id, verified_passage_id
     )
-    report = validate_golden_cases([case], check_v1_distribution=False)
-    assert not report.is_valid
-    assert any("Status is 'verified' but missing reviewer reference" in err for err in report.errors)
+    report_empty = validate_golden_cases([case_empty], check_v1_distribution=False)
+    assert not report_empty.is_valid
+    assert any("missing required authoritative provenance and review fields" in err for err in report_empty.errors)
+
+    # 2. Only single self-asserted metadata field (e.g., only source_document_id)
+    case_single_field = GoldenCase(
+        id="fact-02",
+        category="curriculum",
+        question="Số tín chỉ ngành CNTT?",
+        expected_behavior="grounded_answer_or_abstain",
+        ground_truth_status=GroundTruthStatus.VERIFIED.value,
+        source_document_id="doc-epu-01",
+        # Missing source_hash, verified_passage_id, reviewer_reference, reviewed_at
+    )
+    report_single = validate_golden_cases([case_single_field], check_v1_distribution=False)
+    assert not report_single.is_valid
+    assert any("missing required authoritative provenance and review fields" in err for err in report_single.errors)
+
+
+def test_verified_factual_with_full_authoritative_provenance_passes() -> None:
+    """Verify that a case with complete 5-field authoritative provenance passes validation."""
+    case_valid = GoldenCase(
+        id="fact-verified-01",
+        category="curriculum",
+        question="Số tín chỉ ngành CNTT?",
+        expected_behavior="grounded_answer_or_abstain",
+        ground_truth_status=GroundTruthStatus.VERIFIED.value,
+        source_document_id="doc-epu-ctdt-cntt-2025",
+        source_hash="sha256:abc123def456789012345678901234567890123456789012345678901234abcd",
+        verified_passage_id="pass-cntt-credits-01",
+        reviewer_reference="rev-epu-admissions-dean-001",
+        reviewed_at="2026-10-17T12:00:00Z",
+    )
+    report = validate_golden_cases([case_valid], check_v1_distribution=False)
+    assert report.is_valid
+    assert len(report.errors) == 0
 
 
 def test_reject_malformed_jsonl(tmp_path: Path) -> None:

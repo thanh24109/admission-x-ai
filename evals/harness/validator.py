@@ -165,12 +165,24 @@ def validate_golden_cases(
                 f"Case '{case.id}': Synthetic fixture cannot have ground_truth_status='verified'"
             )
 
-        # Trust Boundary: verified ground truth requires authoritative provenance
+        # Trust Boundary: verified ground truth requires comprehensive authoritative provenance
         if case.ground_truth_status == GroundTruthStatus.VERIFIED.value:
-            has_provenance = bool(case.reviewer_reference or case.source_document_id or case.verified_passage_id)
-            if not has_provenance:
+            missing_provenance = []
+            if not case.source_document_id or not str(case.source_document_id).strip():
+                missing_provenance.append("source_document_id")
+            if not case.source_hash or not str(case.source_hash).strip():
+                missing_provenance.append("source_hash")
+            if not case.verified_passage_id or not str(case.verified_passage_id).strip():
+                missing_provenance.append("verified_passage_id")
+            if not case.reviewer_reference or not str(case.reviewer_reference).strip():
+                missing_provenance.append("reviewer_reference")
+            if not case.reviewed_at or not str(case.reviewed_at).strip():
+                missing_provenance.append("reviewed_at")
+
+            if missing_provenance:
                 errors.append(
-                    f"Case '{case.id}': Status is 'verified' but missing reviewer reference or source evidence provenance"
+                    f"Case '{case.id}': Status is 'verified' but missing required authoritative provenance and review fields: {', '.join(missing_provenance)}. "
+                    "Factual verification cannot be established by single self-asserted metadata."
                 )
 
         # Invariant: pending_pdf_verification cases must not fabricate verified metadata

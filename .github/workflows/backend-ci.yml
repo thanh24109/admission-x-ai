@@ -19,6 +19,8 @@ jobs:
         run: pytest apps/api/tests evals/harness/tests -q
       - name: Deterministic golden dataset evaluation harness
         run: python -m evals.harness.runner --dataset evals/datasets/golden_admission_v1.jsonl --mode all --strict --output evals/reports/ci
+        env:
+          PYTHONPATH: apps/api:.
       - name: Upload evaluation reports
         if: always()
         uses: actions/upload-artifact@v4
