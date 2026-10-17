@@ -284,3 +284,39 @@ All checks passed!
 | **RB-11** | Prompt Injection | **Verified** | Quét cả tin nhắn người dùng và các đoạn trích dẫn truy xuất (`evidence_items`) cho indirect injection. |
 | **RB-12** | Handover Policy | **Verified** | Đưa về đúng Tầng 4 trong thứ tự ưu tiên; không bao giờ đè bẹp lỗi an toàn hay thiếu bằng chứng; không tự tạo ticket. |
 | **RB-13** | Frontend Fallback Safety | **Verified** | Backend policy chặn phát ngôn bịa đặt khi backend offline; mock UI Next.js hoãn sang Task 4. |
+
+---
+
+## I. BỔ SUNG TASK 2.2: FINAL AGGREGATE DECISION SAFETY FIX
+
+- **Nhánh Git**: `feat/phase-1-task-2-rulebase-guardrails`
+- **Commit Task 2.2 (Fix)**: `a9f4288` (`fix(ai): prevent unresolved policy checks from bypassing safe routing`)
+- **Trạng thái**: **PASS 100% (76/76 TESTS PASSED & RUFF CLEAN)**
+
+### 1. Vấn đề giải quyết trong Task 2.2
+- **Lỗ hổng thứ tự trong `_determine_aggregate_action()`**: Các quy tắc chưa thể đánh giá (`NOT_EVALUABLE` trong Layer 1 an toàn hoặc Layer 2 bằng chứng/thời hiệu/trích dẫn) từng có thể bị bỏ qua bởi `PARTIAL_ANSWER` (khi `evidence_status == "partial"`) hoặc `HANDOVER_SUGGESTED` (khi `handover_requested == True`).
+- **Khắc phục triệt để**:
+  1. **Bảo vệ Bằng chứng Chưa Kiểm Chứng**: Mọi kết quả `NOT_EVALUABLE` hoặc `FAIL` trên các quy tắc bằng chứng cốt lõi (RB-01, RB-04, RB-05, RB-06) đều lập tức kích hoạt `SAFE_FALLBACK`, ngăn chặn hoàn toàn việc bypass sang partial-answer hay handover.
+  2. **Thứ tự Ra Quyết Định Chuẩn Hóa**: Tuân thủ chính xác thứ tự đánh giá trong Decision Matrix:
+     - `(1) Safety/Privacy`: Chặn ngay lập tức nếu có Injection (RB-11), Guarantee (RB-09), PII Leak (RB-10); fallback an toàn nếu Offline (RB-13), PII unmasked (RB-10), hoặc unresolved safety/privacy.
+     - `(2) Resolve Ambiguity`: Yêu cầu làm rõ ngành (`CLARIFICATION_NEEDED`) cho RB-03 (đa ngành khớp) và RB-02 (không tìm thấy ngành) **trước khi** kiểm tra bằng chứng chương trình đào tạo cụ thể.
+     - `(3) Verified Evidence & Temporal Validity`: Unresolved evidence/temporal/citation (RB-01, RB-04, RB-05, RB-06) $\rightarrow$ `SAFE_FALLBACK`.
+     - `(4) Partial Evidence`: Chỉ được trả về `PARTIAL_ANSWER` khi tầng an toàn và bằng chứng của phần được hỗ trợ đã được xác thực đầy đủ (`claim_verification_status == "verified"`).
+     - `(5) Optional Handover`: Chỉ được đề xuất `HANDOVER_SUGGESTED` khi tất cả các kiểm tra an toàn và bằng chứng ở trên đã vượt qua.
+  3. **Tính Áp Dụng Linh Hoạt (Applicability-Aware Evaluation)**:
+     - RB-02 nhận diện chính xác các truy vấn kiến thức chung (không hỏi mã/tên ngành EPU) $\rightarrow$ trả về `PASS` (`PROGRAM_RESOLUTION_NOT_REQUIRED`), không phát sinh `NOT_EVALUABLE` gây chặn oan các câu hỏi kiến thức phổ thông.
+     - RB-01 hỗ trợ xác thực bằng chứng một phần (`evidence_status in ("verified", "partial")` kết hợp cùng `claim_verification_status == "verified"`).
+  4. **Nhất Quán Tuyệt Đối giữa `recommended_action` và `is_safe_to_proceed`**:
+     - `is_safe_to_proceed` chỉ mang giá trị `True` khi và chỉ khi `overall_outcome == PASS` VÀ `recommended_action in (DIRECT_ANSWER, PARTIAL_ANSWER)`.
+     - Khi `recommended_action == PARTIAL_ANSWER`, `is_safe_to_proceed` luôn là `True` vì phần phát ngôn hỗ trợ đã được kiểm chứng.
+     - Mọi trường hợp `NOT_EVALUABLE` trên tuyên bố chính thức đều có `recommended_action == SAFE_FALLBACK` và `is_safe_to_proceed == False`.
+
+### 2. Các tệp thay đổi trong Task 2.2
+- [`apps/api/app/ai/rules/engine.py`](file:///e:/admission-x-ai/apps/api/app/ai/rules/engine.py): Cấu trúc lại `_determine_aggregate_action()` chặn bypass của `NOT_EVALUABLE`.
+- [`apps/api/app/ai/rules/evaluators.py`](file:///e:/admission-x-ai/apps/api/app/ai/rules/evaluators.py): Cập nhật RB-01 (hỗ trợ verified partial evidence) và RB-02 (applicability check).
+- [`apps/api/tests/test_rulebase_engine.py`](file:///e:/admission-x-ai/apps/api/tests/test_rulebase_engine.py): Bổ sung 6 test hồi quy cho Task 2.2.
+
+### 3. Kết quả kiểm thử sau Task 2.2
+- **Pytest**: **76/76 passed (100%)** trong 7.05s.
+- **Ruff**: **All checks passed!**
+- **Git Commit**: `a9f4288` (`fix(ai): prevent unresolved policy checks from bypassing safe routing`).
