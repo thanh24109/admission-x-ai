@@ -742,4 +742,128 @@ All checks passed!
   - Không thêm production RAG, database queries hay API endpoints mới.
   - Giữ vững ranh giới Phase 1 (không merge vào `main`, không bắt đầu Task 5).
 
+---
+
+# TASK 4.4 — LOẠI BỎ CƠ CHẾ TỰ XÁC THỰC NGUỒN GỐC TRÍCH DẪN (PREVENT SELF-ASSERTED CITATION VERIFICATION)
+
+## 1. Bối cảnh & Vấn đề Phát hiện (Issue & Trust Boundary)
+
+Trong quá trình rà soát Task 4.3 (Reviewed commit `bdcac55fec13090a79538afa8a64790a9833e9f2`), một lỗ hổng ranh giới tin cậy (P1 trust-boundary flaw) đã được phát hiện:
+- **Vấn đề**: Hàm `isBackendVerifiedCitation(rawRecord)` trước đây kiểm tra sự tồn tại của các trường plain JSON trong API payload:
+  ```json
+  {
+    "provenance": {
+      "status": "verified_backend",
+      "documentId": "epu-dean-2025-v1",
+      "sourceTier": "official_epu"
+    }
+  }
+  ```
+- **Rủi ro**: Các trường này hoàn toàn mang tính tự khẳng định (self-asserted) từ dữ liệu mạng không tin cậy. Một payload JSON tùy ý có thể đính kèm cấu trúc này để tự thăng cấp trạng thái thành `isVerifiedDestination = true` và `status = "verified_backend"`, vi phạm nguyên tắc thẩm định chứng cứ từ backend catalog chính thức.
+- **Mục tiêu Task 4.4**: 
+  - Triệt tiêu khả năng tự phong xác minh từ dữ liệu JSON thô.
+  - Áp dụng cơ chế fail-closed 100% cho Phase 1: Mọi trích dẫn từ API phản hồi thông thường đều không thể tự xưng là `verified_backend`.
+  - Phân loại rõ ràng 2 trạng thái hợp lệ trong Phase 1:
+    - URL thuộc danh sách allowlist: Cho phép điều hướng ("Xem tài liệu"), nhưng bằng chứng trích dẫn vẫn là chưa xác minh (`isAllowedDestination = true`, `isVerifiedDestination = false`, `provenance.status = "unverified_allowlisted"`).
+    - URL không thuộc allowlist / bị từ chối / traversal: Điểm đến không tin cậy (`isAllowedDestination = false`, `isVerifiedDestination = false`, `provenance.status = "untrusted"`).
+    - Trạng thái `verified_backend` được bảo lưu cho ranh giới tích hợp kênh xác thực bảo mật tương lai, không bao giờ được tổng hợp từ payload JSON thông thường.
+
+---
+
+## 2. Các Thay đổi Kỹ thuật Thực tế (Code Changes)
+
+### 2.1. Tái định nghĩa Fail-Closed cho `isBackendVerifiedCitation` (`apps/web/src/lib/chatClient.ts`)
+- Thay đổi `isBackendVerifiedCitation(_rawRecord?: unknown): boolean`: Lập tức trả về `false` cho mọi plain JSON payload trong Phase 1.
+- Loại bỏ hoàn toàn logic kiểm tra các khóa self-asserted `status === "verified_backend"` từ object thô.
+
+### 2.2. Chuẩn hóa Quy tắc Phân loại Nguồn gốc (`apps/web/src/lib/chatClient.ts`)
+- Trong `formatSafeCitation()`:
+  - Cờ `isVerifiedDestination`: Luôn nhận giá trị `false` đối với các payload phản hồi JSON thông thường trong Phase 1.
+  - Không tin cậy bất kỳ trường nào trong `record.isVerifiedDestination` hay `record.provenance.status` làm căn cứ ủy quyền.
+  - Phân nhánh fail-closed:
+    - Nếu `isAllowedDest === true` -> `provenance: { status: "unverified_allowlisted" }`.
+    - Ngược lại -> `provenance: { status: "untrusted" }`.
+
+### 2.3. Cập nhật Bộ Kiểm Thử Hồi Quy (`apps/web/tests/chatClient.test.ts`)
+- Cập nhật **Test 27**: Đổi từ kiểm tra chấp nhận metadata backend sang kiểm chứng nghiêm ngặt rằng một đối tượng JSON giả mạo chứa `status: "verified_backend"` **không thể** tự thăng hạng thành `verified`:
+  - `isBackendVerifiedCitation(fabricatedBackendCitation)` trả về `false`.
+  - `formatted.isVerifiedDestination` trả về `false`.
+  - `formatted.provenance.status` nhận giá trị `"unverified_allowlisted"` (nếu URL thuộc allowlist).
+  - Đối với URL ngoài luồng chứa metadata giả mạo, `formatted.provenance.status` nhận giá trị `"untrusted"`.
+
+---
+
+## 3. Kết Quả Kiểm Thử Thực Tế (Execution Logs)
+
+```bash
+# 1. Backend Pytest & Agent-Harness (181 tests)
+& "E:\admission-x-ai\.venv\Scripts\python.exe" -m pytest apps/api/tests evals/harness/tests
+============================= 181 passed in 7.93s =============================
+Agent-Harness: 7 passed, 0 failed
+
+# 2. Backend Ruff Linter
+& "E:\admission-x-ai\.venv\Scripts\python.exe" -m ruff check apps/api
+All checks passed!
+
+# 3. Frontend Unit Tests (29 tests)
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web test
+▶ Frontend Chat API Contract & Error Handling Tests
+  ✔ 1. Successfully parses authentic backend response (1.87ms)
+  ✔ 2. Handles backend offline / connection refused with safe static error message (1.13ms)
+  ✔ 3. Handles backend HTTP error without fabricating admissions claims (0.29ms)
+  ✔ 4. Handles backend timeout safely (0.16ms)
+  ✔ 5. Throws on malformed JSON / non-object payload (0.78ms)
+  ✔ 6. Throws on missing required 'answer' field (0.25ms)
+  ✔ 7. Safely parses responses with empty citations list (0.27ms)
+  ✔ 8. Never defaults missing citation source to 'Trường Đại học Điện lực (EPU)' (0.36ms)
+  ✔ 9. Never defaults missing document type to PDF (0.26ms)
+  ✔ 10. Rejects invalid and malformed URLs (0.31ms)
+  ✔ 11. Strictly rejects protocol-relative URLs (//evil.com) (0.15ms)
+  ✔ 12. Rejects unsafe protocols (javascript, data, vbscript, file) (0.13ms)
+  ✔ 13. Separates URL syntax validation from official provenance verification (0.22ms)
+  ✔ 14. Guarantees no mock admissions answers under failure (0.29ms)
+  ✔ 15. Does not manufacture fake page labels or file sizes (0.11ms)
+  ✔ 16. New conversation during request invalidates in-flight responses (0.11ms)
+  ✔ 17. Retry pattern resends without duplicating user messages in thread (0.13ms)
+  ✔ 18. No production mock document metadata in chatRelatedDocuments (0.07ms)
+  ✔ 19. Strictly rejects backslash-based URL normalization bypasses (0.10ms)
+  ✔ 20. Prohibits arbitrary internal routes from being treated as approved document links (0.17ms)
+  ✔ 21. Enforces production-safe HTTPS for external document links (rejects plain HTTP) (0.13ms)
+  ✔ 22. Prohibits localhost/127.0.0.1 exceptions from authorizing production document links (0.12ms)
+  ✔ 23. Never trusts raw client-facing boolean (isVerifiedDestination) as proof of backend approval (0.12ms)
+  ✔ 24. Rejects directory traversal paths in citations (0.10ms)
+  ✔ 25. Distinguishes allowed official destination from evidence verification (0.14ms)
+  ✔ 26. Rejects raw payload boolean 'isVerifiedDestination=true' without authentic backend verification (0.10ms)
+  ✔ 27. Fabricated JSON provenance object cannot promote itself to verified (fails closed) (0.15ms)
+  ✔ 28. Rejects encoded traversal (%2e%2e, %252e%252e, %5c, %00, ..%2f) (0.17ms)
+  ✔ 29. Preserves safe navigation for valid destinations without false verification claims (0.30ms)
+✔ Frontend Chat API Contract & Error Handling Tests (10.71ms)
+ℹ tests 29 | pass 29 | fail 0
+
+# 4. Frontend ESLint
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web run lint
+✔ No ESLint warnings or errors
+
+# 5. Frontend Production Build
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web run build
+✓ Compiled successfully in 10.0s
+✓ Linting and checking validity of types
+✓ Collecting page data
+✓ Generating static pages (131/131)
+✓ Finalizing page optimization
+```
+
+---
+
+## 4. Kết luận & Cam kết Phạm vi Task 4.4
+
+- **Nhánh thực hiện:** `feat/phase-1-task-4-decision-safe-fallback`
+- **Reviewed Commit:** `bdcac55fec13090a79538afa8a64790a9833e9f2`
+- **Commit Message đề xuất:** `fix(web): prevent self-asserted citation verification`
+- **Phạm vi bảo toàn:**
+  - Không bổ sung chữ ký mật mã (cryptographic signatures), RAG retrieval, truy vấn Supabase hay API endpoints mới.
+  - Bảo tồn toàn vẹn khả năng điều hướng URL an toàn và các cơ chế phòng thủ directory traversal đã thiết lập.
+  - Giữ vững ranh giới Phase 1 (không merge vào `main`, dừng lại chờ review).
+
+
 

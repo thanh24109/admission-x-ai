@@ -254,28 +254,20 @@ export function isOfficialProvenanceUrl(rawUrl: string): boolean {
 /**
  * Authoritative boundary: Checks if a citation record contains authentic backend contract verification.
  *
- * CRITICAL INVARIANTS:
- * 1. Matching an allowlisted URL does NOT make a citation verified.
- * 2. Raw booleans from API payloads (e.g. record.isVerifiedDestination: true) are NEVER trusted.
- * 3. Requires an authoritative backend contract provenance record with status 'verified_backend',
- *    authentic documentId, and sourceTier 'official_epu'.
+ * CRITICAL TRUST BOUNDARY (Phase 1):
+ * In Phase 1, arbitrary JSON payloads from the chat API are untrusted inputs.
+ * Plain JSON fields (such as record.provenance.status = "verified_backend"
+ * or record.isVerifiedDestination = true) are self-asserted and CANNOT authorize
+ * authoritative verification.
+ *
+ * This function fails closed for arbitrary untrusted payload objects.
+ * Authoritative backend verification status is reserved for a future trusted integration boundary
+ * and cannot be synthesized from ordinary response JSON.
  */
-export function isBackendVerifiedCitation(rawRecord: unknown): boolean {
-  if (!rawRecord || typeof rawRecord !== "object") {
-    return false;
-  }
-  const record = rawRecord as Record<string, unknown>;
-  const prov = record.provenance;
-  if (!prov || typeof prov !== "object") {
-    return false;
-  }
-  const provRec = prov as Record<string, unknown>;
-  return (
-    provRec.status === "verified_backend" &&
-    typeof provRec.documentId === "string" &&
-    Boolean(provRec.documentId.trim()) &&
-    provRec.sourceTier === "official_epu"
-  );
+export function isBackendVerifiedCitation(_rawRecord?: unknown): boolean {
+  // Ordinary response JSON cannot promote itself to verified in Phase 1.
+  // Fails closed until a cryptographically verified or secure internal boundary is established.
+  return false;
 }
 
 /**
@@ -320,9 +312,11 @@ export function formatSafeCitation(
     }
   }
 
-  // Authoritative Provenance Verification Boundary
+  // Authoritative Provenance Verification Boundary (Phase 1 Fail-Closed)
   // INVARIANT 1: Matching an allowlisted URL does NOT make a citation verified.
   // INVARIANT 2: Raw client booleans (record.isVerifiedDestination) are NEVER trusted.
+  // INVARIANT 3: Self-asserted JSON provenance metadata (record.provenance) is NEVER trusted as proof of verification.
+  // Ordinary response JSON cannot synthesize or promote a citation to 'verified_backend'.
   const isAuthoritativeVerified = isBackendVerifiedCitation(record);
 
   // File type: strictly preserve authentic value, never default to pdf
@@ -339,10 +333,16 @@ export function formatSafeCitation(
       ? record.id.trim()
       : `cite-${index}`;
 
+  // Fail-closed provenance determination:
+  // - URL allowlisted: navigation permitted, but evidence remains unverified ('unverified_allowlisted').
+  // - URL rejected / missing: citation destination is untrusted ('untrusted').
+  // - Backend verified: reserved for future trusted integration boundary; never synthesized from ordinary JSON.
   const provenance: CitationProvenanceMetadata = isAuthoritativeVerified
     ? {
         status: "verified_backend",
-        documentId: (record.provenance as Record<string, unknown>).documentId as string,
+        documentId: typeof (record.provenance as Record<string, unknown> | undefined)?.documentId === "string"
+          ? (record.provenance as Record<string, unknown>).documentId as string
+          : undefined,
         sourceTier: "official_epu",
       }
     : isAllowedDest

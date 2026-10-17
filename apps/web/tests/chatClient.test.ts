@@ -383,9 +383,9 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     assert.equal(formatted?.provenance?.status, "unverified_allowlisted");
   });
 
-  // 27. Authoritative backend contract provenance unlocks verified status
-  it("27. Authoritative backend contract provenance verifies citation", () => {
-    const verifiedBackendCitation = {
+  // 27. Fabricated JSON provenance metadata cannot promote itself to verified
+  it("27. Fabricated JSON provenance object cannot promote itself to verified (fails closed)", () => {
+    const fabricatedBackendCitation = {
       title: "Đề án tuyển sinh trình độ đại học năm 2025",
       source: "Hội đồng Tuyển sinh EPU",
       url: "https://tuyensinh.epu.edu.vn/de-an-2025.pdf",
@@ -396,15 +396,35 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
       },
     };
 
-    assert.equal(isBackendVerifiedCitation(verifiedBackendCitation), true);
+    // Plain JSON payload objects are self-asserted and cannot authorize verification
+    assert.equal(isBackendVerifiedCitation(fabricatedBackendCitation), false);
 
-    const formatted = formatSafeCitation(verifiedBackendCitation, 0);
+    const formatted = formatSafeCitation(fabricatedBackendCitation, 0);
     assert.notEqual(formatted, null);
+    // Allowed destination for navigation is preserved
     assert.equal(formatted?.isAllowedDestination, true);
-    assert.equal(formatted?.isVerifiedDestination, true);
-    assert.equal(formatted?.provenance?.status, "verified_backend");
-    assert.equal(formatted?.provenance?.documentId, "epu-dean-2025-v1");
-    assert.equal(formatted?.provenance?.sourceTier, "official_epu");
+    // CRITICAL (Phase 1): Ordinary response JSON cannot promote a citation to verified
+    assert.equal(formatted?.isVerifiedDestination, false);
+    // Fails closed to unverified_allowlisted
+    assert.equal(formatted?.provenance?.status, "unverified_allowlisted");
+    assert.equal(formatted?.provenance?.documentId, undefined);
+
+    // Also test when fabricated citation points to an unapproved / attacker destination
+    const fabricatedUntrustedCitation = {
+      title: "Văn bản mạo danh",
+      source: "Ngoại lai",
+      url: "https://attacker.com/malicious.pdf",
+      provenance: {
+        status: "verified_backend" as const,
+        documentId: "doc-fake-01",
+        sourceTier: "official_epu" as const,
+      },
+    };
+    assert.equal(isBackendVerifiedCitation(fabricatedUntrustedCitation), false);
+    const formattedUntrusted = formatSafeCitation(fabricatedUntrustedCitation, 1);
+    assert.equal(formattedUntrusted?.isAllowedDestination, false);
+    assert.equal(formattedUntrusted?.isVerifiedDestination, false);
+    assert.equal(formattedUntrusted?.provenance?.status, "untrusted");
   });
 
   // 28. Rejects encoded traversal and canonicalization bypass cases
