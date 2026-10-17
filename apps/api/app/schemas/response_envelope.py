@@ -77,15 +77,17 @@ class HandoverStatus(str, Enum):
     NONE = "none"
     OFFERED = "offered"
     REQUESTED = "requested"
+    CONSENTED = "consented"
     CREATED = "created"
 
 
 class HandoverInfo(BaseModel):
     """Structured human handover state.
 
-    CRITICAL INVARIANT:
-    handover.offered must NEVER imply ticket_id is created.
-    Ticket creation requires verified user consent and backend action.
+    CRITICAL INVARIANTS:
+    - handover.offered must NEVER imply ticket_id is created.
+    - User request alone (requested=True) does NOT authorize ticket creation.
+    - Ticket creation requires verified user consent (consent_verified=True) and backend action.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -98,9 +100,13 @@ class HandoverInfo(BaseModel):
         default=False,
         description="Whether candidate confirmed request for staff assistance.",
     )
+    consent_verified: bool = Field(
+        default=False,
+        description="Whether server-side consent verification has succeeded. User request alone does NOT authorize ticket creation.",
+    )
     ticket_id: str | None = Field(
         default=None,
-        description="Created backend ticket reference. Null unless confirmed and created.",
+        description="Created backend ticket reference. Null unless consented and created.",
     )
     reason_code: str | None = Field(
         default=None,
@@ -112,6 +118,8 @@ class HandoverInfo(BaseModel):
         """Derived handover status."""
         if self.ticket_id is not None:
             return HandoverStatus.CREATED
+        if self.consent_verified:
+            return HandoverStatus.CONSENTED
         if self.requested:
             return HandoverStatus.REQUESTED
         if self.offered:
@@ -120,10 +128,16 @@ class HandoverInfo(BaseModel):
 
     @model_validator(mode="after")
     def validate_handover_state(self) -> HandoverInfo:
-        # A ticket cannot exist without candidate request or confirmed consent
+        # A ticket cannot exist without explicit candidate request
         if self.ticket_id is not None and not self.requested:
             raise ValueError(
-                "A handover ticket cannot be created without candidate request or confirmed consent"
+                "A handover ticket cannot be created without candidate request"
+            )
+        # CRITICAL: A user request alone does NOT authorize ticket creation without server-verified consent
+        if self.ticket_id is not None and not self.consent_verified:
+            raise ValueError(
+                "A handover ticket requires server-verified consent (consent_verified=True); "
+                "user request alone is not sufficient authorization"
             )
         # An offer alone must never carry a ticket_id
         if self.offered and not self.requested and self.ticket_id is not None:
@@ -274,6 +288,10 @@ def to_legacy_chat_response(envelope: AIResponseEnvelope) -> ChatResponse:
     """Safe compatibility adapter mapping AIResponseEnvelope to legacy ChatResponse.
 
     Preserves exact backward compatibility with apps/api/app/schemas/chat.py.
+    SAFETY RULES:
+    1. Never manufacture citation sources or URLs (no 'Trang N' or title placeholders).
+    2. Omit citations without an authentic, verified source_url from the legacy contract.
+    3. Do not default confidence to 1.0; unassessed confidence maps to 0.0 to prevent misleading certainty.
     """
     from app.schemas.chat import ChatResponse, Citation
 
@@ -283,19 +301,21 @@ def to_legacy_chat_response(envelope: AIResponseEnvelope) -> ChatResponse:
         or (envelope.handover.ticket_id is not None)
     )
 
+    # Only include citations with authentic verified source URLs; omit citations
+    # that lack an official URL rather than fabricating placeholder source strings.
     legacy_citations = [
         Citation(
             title=c.title,
-            source=c.source_url
-            or (f"Trang {c.page_start}" if c.page_start is not None else c.title),
+            source=c.source_url,
         )
         for c in envelope.citations
+        if c.source_url and c.source_url.strip()
     ]
 
     return ChatResponse(
         answer=envelope.answer,
         intent=envelope.intent,
-        confidence=envelope.confidence if envelope.confidence is not None else 1.0,
+        confidence=envelope.confidence if envelope.confidence is not None else 0.0,
         handover=is_handover,
         citations=legacy_citations,
     )

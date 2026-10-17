@@ -113,8 +113,8 @@ class ToolResponseEnvelope(BaseModel, Generic[T]):
     def validate_envelope_consistency(self) -> ToolResponseEnvelope[T]:
         if self.status == ToolStatus.OK and self.data is None:
             raise ValueError("Tool response data cannot be None when status is 'ok'")
-        if self.status == ToolStatus.ERROR and self.error_code is None:
-            raise ValueError("Tool response must specify an error_code when status is 'error'")
+        if self.status in (ToolStatus.ERROR, ToolStatus.UNAVAILABLE) and self.error_code is None:
+            raise ValueError(f"Tool response must specify an error_code when status is '{self.status.value}'")
         return self
 
 
@@ -300,6 +300,12 @@ class CurriculumRetrieveResult(BaseModel):
         ...,
         description="Assessed coverage of query against evidence.",
     )
+
+    @model_validator(mode="after")
+    def validate_coverage_evidence(self) -> CurriculumRetrieveResult:
+        if self.coverage == CurriculumCoverage.SUFFICIENT and len(self.evidence) == 0:
+            raise ValueError("coverage cannot be 'sufficient' when retrieved evidence list is empty")
+        return self
 
 
 # ============================================================================

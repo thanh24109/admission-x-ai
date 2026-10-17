@@ -214,3 +214,64 @@ Tuân thủ nghiêm ngặt phạm vi **Contract-First** của Task 3, các hạn
   - Không tự ý merge nhánh.
   - Sẵn sàng để thực hiện commit theo quy định:
     `feat(ai): define response citation and agent tool contracts`
+
+---
+
+## 11. Task 3.1 Review Fixes: Củng cố an toàn Contract & Verification
+
+**Commit SHA base được review:** `5e73ed636edcaf948f7282e2f85b886315b226fb`  
+**Kết quả Review:** PASS WITH CHANGES  
+
+### 11.1. Các vấn đề được chỉ ra và giải pháp khắc phục
+
+1. **P1 — Khắc phục Legacy Citation Adapter (`to_legacy_chat_response`)**:
+   - *Vấn đề:* Phiên bản ban đầu thay thế nhãn trang `Trang N` hoặc tên tài liệu `c.title` vào trường `source` của schema cũ khi `source_url` là `None`. Đồng thời fallback `confidence=1.0` tạo ra cảm giác sai lệch về độ chắc chắn (misleading certainty).
+   - *Giải pháp:*
+     - Tuyệt đối không bịa đặt nguồn hoặc URL trích dẫn. Không sử dụng `Trang N` hoặc tiêu đề tài liệu làm nguồn thay thế.
+     - Các trích dẫn không có `source_url` chính thức, đã xác minh sẽ được **loại bỏ an toàn** (`omitted`) khỏi danh sách `citations` của `ChatResponse` cũ, thay vì chế tạo chuỗi giả.
+     - Thuộc tính `confidence` khi chưa được đánh giá (`None`) sẽ fallback về `0.0` thay vì `1.0`.
+
+2. **P1 — Chế độ Đóng an toàn khi thiếu Trusted Catalog (Fail Closed)**:
+   - *Vấn đề:* `ContractCitationVerifier` trước đây trả về `is_valid=True` ngay cả khi `trusted_catalog` là `None` (fail open).
+   - *Giải pháp:*
+     - Triển khai nguyên tắc **Fail-Closed**: Khi `trusted_catalog` là `None`, việc xác thực danh mục được đánh dấu là `CATALOG_NOT_EVALUABLE` và `is_valid = False`.
+     - Tuyệt đối không phê duyệt trích dẫn khi chưa có danh mục tài liệu phê duyệt của trường.
+     - Định nghĩa model `TrustedDocumentEntry` có cấu trúc nghiêm ngặt (`document_id`, `title`, `source_tier`, `is_active`, `document_hash`, `allowed_major_codes`).
+     - Thẩm định metadata danh mục: từ chối nếu tài liệu bị đánh dấu `is_active=False` (`CATALOG_DOCUMENT_INACTIVE`), lệch phân cấp nguồn (`CATALOG_METADATA_MISMATCH`), lệch hash mã hóa, hoặc mã ngành không được phân quyền trong tài liệu đó.
+     - Hàm `verify_batch` chỉ đưa các trích dẫn có `is_valid=True` vào `verified_citations`. Khi thiếu catalog, `verified_citations` sẽ rỗng hoàn toàn.
+
+3. **P2 — Củng cố ngữ nghĩa hợp đồng Handover (`HandoverInfo`)**:
+   - *Vấn đề:* Trước đây `requested=True` có thể bị nhầm lẫn là đủ thẩm quyền để tạo vé hỗ trợ (`ticket_id`).
+   - *Giải pháp:*
+     - Bổ sung trường `consent_verified: bool = False` để phân tách rạch ròi giữa yêu cầu của người dùng (`requested=True`) và việc máy chủ đã kiểm chứng sự đồng thuận (`consent_verified=True`).
+     - Thiết lập ràng buộc bất biến: `ticket_id` chỉ được phép tồn tại khi đồng thời `requested=True` VÀ `consent_verified=True`. Bất kỳ nỗ lực gán `ticket_id` khi chưa có xác nhận đồng thuận từ máy chủ đều bị Pydantic chặn bằng `ValueError`.
+     - Thêm trạng thái `HandoverStatus.CONSENTED` khi thí sinh đã yêu cầu và đồng thuận đã được kiểm chứng nhưng vé chưa được khởi tạo.
+
+4. **Kiểm toán tính nhất quán bổ sung (Additional Consistency Audit)**:
+   - `apps/api/app/schemas/citation.py`: Hàm `CitationRecord.matches_evidence()` trực tiếp kiểm tra và từ chối nếu `evidence.verification_status != VerificationStatus.VERIFIED`.
+   - `apps/api/app/ai/tools/contracts.py`:
+     - `ToolResponseEnvelope` bắt buộc phải có `error_code` khi trạng thái là `error` hoặc `unavailable`.
+     - `CurriculumRetrieveResult` chặn trường hợp `coverage == SUFFICIENT` nhưng danh sách `evidence` lại rỗng.
+
+### 11.2. Danh sách tệp tin thay đổi trong Task 3.1
+- `apps/api/app/schemas/response_envelope.py`: Cập nhật `HandoverStatus`, `HandoverInfo`, và `to_legacy_chat_response`.
+- `apps/api/app/ai/rag/citations/verifier.py`: Bổ sung `TrustedDocumentEntry`, fail-closed khi thiếu catalog, kiểm định metadata catalog.
+- `apps/api/app/ai/rag/citations/__init__.py`: Xuất khẩu `TrustedDocumentEntry`.
+- `apps/api/app/schemas/citation.py`: Ràng buộc `evidence.verification_status == VERIFIED` trong `matches_evidence`.
+- `apps/api/app/ai/tools/contracts.py`: Ràng buộc `error_code` cho trạng thái `unavailable` và chặn `coverage=SUFFICIENT` rỗng.
+- `apps/api/tests/test_response_envelope.py`: Bổ sung 4 test cases kiểm tra loại bỏ trích dẫn thiếu URL, confidence fallback 0.0, và ràng buộc `consent_verified`.
+- `apps/api/tests/test_citation_verifier.py`: Bổ sung 6 test cases kiểm tra fail-closed khi thiếu catalog, document inactive, metadata mismatch, hash mismatch, unauthorized major code, và batch unapproved.
+- `apps/api/tests/test_citation_contract.py`: Bổ sung 1 test case kiểm tra từ chối evidence chưa verified.
+- `apps/api/tests/test_tool_contracts.py`: Bổ sung 2 test cases kiểm tra `error_code` trên `unavailable` và `coverage=SUFFICIENT` rỗng.
+- `docs/ai/phase-1/task-3-implementation-report.md`: Cập nhật mục 11.
+
+### 11.3. Kết quả Kiểm thử & Lint sau Task 3.1
+- **Pytest:** `131 passed in 7.13s` (Toàn bộ 131 test pass 100%, tăng thêm 12 test regressions so với Task 3 ban đầu).
+- **Ruff Check:** `All checks passed!` (0 lỗi, 0 cảnh báo).
+
+### 11.4. Thông tin Commit Task 3.1
+- **Commit SHA:** `cd67c1f`
+- **Thông điệp Commit:** `fix(ai): harden citation verification and legacy response contracts`
+- **Tình trạng:** Sẵn sàng review Task 3.1. Dừng sau Task 3.1, không merge vào main, không bắt đầu Task 4.
+
+

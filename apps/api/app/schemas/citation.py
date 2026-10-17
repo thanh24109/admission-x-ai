@@ -219,6 +219,8 @@ class CitationRecord(BaseModel):
 
     def matches_evidence(self, evidence: EvidenceRecord) -> tuple[bool, str]:
         """Check reference consistency against an authoritative EvidenceRecord."""
+        if evidence.verification_status != VerificationStatus.VERIFIED:
+            return False, f"evidence record status is '{evidence.verification_status.value}', not 'verified'"
         if self.evidence_id != evidence.evidence_id:
             return False, f"evidence_id mismatch ('{self.evidence_id}' != '{evidence.evidence_id}')"
         if self.document_id != evidence.document_id:
@@ -240,3 +242,4 @@ class CitationRecord(BaseModel):
         ):
             return False, f"page_end ({self.page_end}) exceeds evidence end ({evidence.page_end})"
         return True, "MATCH"
+

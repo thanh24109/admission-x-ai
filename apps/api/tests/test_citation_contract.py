@@ -189,6 +189,7 @@ def test_citation_matches_evidence_mismatch_checks():
         page_start=5,
         page_end=10,
         document_title="Đề án 2025",
+        verification_status=VerificationStatus.VERIFIED,
     )
 
     # Document ID mismatch
@@ -227,3 +228,25 @@ def test_citation_matches_evidence_mismatch_checks():
     ok, reason = bad_page_cite.matches_evidence(evidence)
     assert ok is False
     assert "page_start" in reason
+
+
+def test_citation_matches_evidence_unverified_rejected():
+    """matches_evidence rejects evidence records that are not VERIFIED."""
+    unverified_evidence = EvidenceRecord(
+        evidence_id="ev-unverified-01",
+        document_id="doc-epu-2025-01",
+        chunk_id="chunk-01",
+        content_excerpt="Chương trình...",
+        document_title="Đề án 2025",
+        verification_status=VerificationStatus.UNVERIFIED,
+    )
+    cite = CitationRecord(
+        citation_id="cite-test-unverified",
+        evidence_id="ev-unverified-01",
+        document_id="doc-epu-2025-01",
+        title="Đề án 2025",
+    )
+    ok, reason = cite.matches_evidence(unverified_evidence)
+    assert ok is False
+    assert "not 'verified'" in reason
+

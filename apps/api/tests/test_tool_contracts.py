@@ -89,6 +89,13 @@ def test_tool_common_response_envelope_error():
             error_code=None,
         )
 
+    # Omitting error_code when status is UNAVAILABLE must also raise error
+    with pytest.raises(ValidationError, match="must specify an error_code"):
+        ToolResponseEnvelope[None](
+            status=ToolStatus.UNAVAILABLE,
+            error_code=None,
+        )
+
 
 def test_program_lookup_args_validation():
     """program_lookup enforces bounds on query and limit."""
@@ -162,6 +169,13 @@ def test_curriculum_retrieve_coverage_types():
         coverage=CurriculumCoverage.PARTIAL,
     )
     assert res.coverage == CurriculumCoverage.PARTIAL
+
+    # Claiming sufficient coverage with empty evidence is rejected
+    with pytest.raises(ValidationError, match="coverage cannot be 'sufficient' when retrieved evidence list is empty"):
+        CurriculumRetrieveResult(
+            evidence=[],
+            coverage=CurriculumCoverage.SUFFICIENT,
+        )
 
 
 def test_general_knowledge_explain_contract():

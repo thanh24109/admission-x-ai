@@ -215,6 +215,89 @@ def test_legacy_chat_response_adapter_handover_true():
     assert legacy.handover is True
 
 
+def test_legacy_chat_response_adapter_omits_citations_without_url():
+    """Legacy adapter omits citations with null/missing source_url to prevent source fabrication."""
+    cite_with_url = CitationRecord(
+        citation_id="cite-with-url",
+        evidence_id="ev-001",
+        document_id="doc-01",
+        title="Đề án Tuyển sinh EPU 2025",
+        source_url="https://tuyensinh.epu.edu.vn/dean-2025.pdf",
+    )
+    cite_no_url = CitationRecord(
+        citation_id="cite-no-url",
+        evidence_id="ev-002",
+        document_id="doc-02",
+        title="Thông báo tuyển sinh số 42",
+        source_url=None,
+        page_start=5,
+    )
+    envelope = AIResponseEnvelope(
+        response_id="resp-1009",
+        answer="Thông tin xét tuyển kết hợp.",
+        answer_status=AnswerStatus.ANSWERED,
+        evidence_status=EvidenceStatus.SUPPORTED,
+        source_mode=SourceMode.OFFICIAL_EPU,
+        intent="admissions",
+        citations=[cite_with_url, cite_no_url],
+    )
+
+    legacy = to_legacy_chat_response(envelope)
+    # The citation without verified source_url MUST be omitted, not fabricated as 'Trang 5'
+    assert len(legacy.citations) == 1
+    assert legacy.citations[0].title == "Đề án Tuyển sinh EPU 2025"
+    assert legacy.citations[0].source == "https://tuyensinh.epu.edu.vn/dean-2025.pdf"
+
+
+def test_legacy_chat_response_adapter_confidence_defaults_to_zero():
+    """When envelope.confidence is None, legacy ChatResponse defaults to 0.0 to avoid misleading certainty."""
+    envelope = AIResponseEnvelope(
+        response_id="resp-1010",
+        answer="Chào bạn.",
+        answer_status=AnswerStatus.ANSWERED,
+        evidence_status=EvidenceStatus.NOT_APPLICABLE,
+        source_mode=SourceMode.NONE,
+        intent="greeting",
+        confidence=None,
+    )
+    legacy = to_legacy_chat_response(envelope)
+    assert legacy.confidence == 0.0
+
+
+def test_handover_consent_verified_required_for_ticket():
+    """requested=True without consent_verified=True rejects ticket_id."""
+    with pytest.raises(ValidationError, match="requires server-verified consent"):
+        HandoverInfo(
+            offered=True,
+            requested=True,
+            consent_verified=False,
+            ticket_id="ticket-unconsented",
+        )
+
+
+def test_handover_ticket_creation_with_consent_success():
+    """requested=True and consent_verified=True allows ticket_id and sets status to CREATED."""
+    info = HandoverInfo(
+        offered=True,
+        requested=True,
+        consent_verified=True,
+        ticket_id="ticket-consented-42",
+    )
+    assert info.status == HandoverStatus.CREATED
+    assert info.ticket_id == "ticket-consented-42"
+
+
+def test_handover_status_consented_without_ticket():
+    """requested=True and consent_verified=True without ticket_id yields CONSENTED status."""
+    info = HandoverInfo(
+        offered=True,
+        requested=True,
+        consent_verified=True,
+        ticket_id=None,
+    )
+    assert info.status == HandoverStatus.CONSENTED
+
+
 def test_pydantic_json_schema_generation():
     """Ensure Pydantic JSON schema can be generated reliably without errors."""
     schema = AIResponseEnvelope.model_json_schema()
@@ -224,3 +307,4 @@ def test_pydantic_json_schema_generation():
     assert "evidence_status" in schema["properties"]
     assert "citations" in schema["properties"]
     assert "handover" in schema["properties"]
+

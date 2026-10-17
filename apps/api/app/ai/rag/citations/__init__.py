@@ -6,6 +6,7 @@ from app.ai.rag.citations.verifier import (
     CitationVerificationReason,
     CitationVerificationResult,
     ContractCitationVerifier,
+    TrustedDocumentEntry,
 )
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "CitationVerificationReason",
     "CitationVerificationResult",
     "ContractCitationVerifier",
+    "TrustedDocumentEntry",
     "validate_citations",
 ]

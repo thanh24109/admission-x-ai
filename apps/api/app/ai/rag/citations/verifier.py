@@ -3,6 +3,7 @@
 Follows docs/ai/phase-1/citation-contract.md.
 Validates structural integrity, evidence matching, and trusted catalog presence.
 Explicitly distinguishes structural/reference validity from semantic claim-level grounding.
+Fails closed when the trusted document catalog is missing or metadata mismatches.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.schemas.citation import CitationRecord, EvidenceRecord, SourceTier, VerificationStatus
 
@@ -29,8 +30,39 @@ class CitationVerificationReason(str, Enum):
     UNOFFICIAL_SOURCE_TIER = "UNOFFICIAL_SOURCE_TIER"
     EVIDENCE_UNVERIFIED = "EVIDENCE_UNVERIFIED"
     CATALOG_DOCUMENT_NOT_FOUND = "CATALOG_DOCUMENT_NOT_FOUND"
+    CATALOG_DOCUMENT_INACTIVE = "CATALOG_DOCUMENT_INACTIVE"
+    CATALOG_METADATA_MISMATCH = "CATALOG_METADATA_MISMATCH"
     CATALOG_NOT_EVALUABLE = "CATALOG_NOT_EVALUABLE"
     CLAIM_GROUNDING_PENDING = "CLAIM_GROUNDING_PENDING"
+
+
+class TrustedDocumentEntry(BaseModel):
+    """Authoritative document record in the official university catalog."""
+
+    model_config = ConfigDict(frozen=True)
+
+    document_id: str = Field(..., min_length=1, description="Canonical catalog document identifier.")
+    title: str = Field(..., min_length=1, description="Authoritative document title.")
+    source_tier: SourceTier = Field(
+        default=SourceTier.OFFICIAL_EPU,
+        description="Approved source tier for this catalog document.",
+    )
+    is_active: bool = Field(
+        default=True,
+        description="Whether this document version is active and approved for citation.",
+    )
+    document_hash: str | None = Field(
+        default=None,
+        description="Cryptographic SHA-256 hash of the approved official document.",
+    )
+    document_version: str | None = Field(
+        default=None,
+        description="Issuance or version identifier, e.g. '2025.1'.",
+    )
+    allowed_major_codes: list[str] | None = Field(
+        default=None,
+        description="Allowlisted 7-digit major codes covered by this document.",
+    )
 
 
 class CitationVerificationResult(BaseModel):
@@ -41,7 +73,7 @@ class CitationVerificationResult(BaseModel):
     citation_id: str
     is_valid: bool = Field(
         ...,
-        description="True if citation passes structural and evidence-matching checks.",
+        description="True ONLY if citation passes structural, evidence-matching, and trusted catalog checks.",
     )
     reason_code: CitationVerificationReason
     message: str
@@ -76,14 +108,19 @@ class BatchCitationVerificationReport(BaseModel):
 class ContractCitationVerifier:
     """Pure, deterministic contract-level citation verifier.
 
-    This verifier executes structural and referential checks.
+    This verifier executes structural, referential, and catalog authorization checks.
+    It FAILS CLOSED when the trusted catalog is absent or does not approve the document.
     It does NOT evaluate semantic claim alignment (which is Phase 6 work).
     """
 
-    def __init__(self, trusted_catalog: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        trusted_catalog: dict[str, TrustedDocumentEntry | dict[str, Any]] | None = None,
+    ) -> None:
         """Initialize verifier with optional trusted document catalog.
 
-        If trusted_catalog is None, catalog verification is recorded as not_evaluable/pending.
+        FAILS CLOSED: If trusted_catalog is None, all citations fail verification
+        with reason_code=CATALOG_NOT_EVALUABLE and are NOT approved for frontend display.
         """
         self._trusted_catalog = trusted_catalog
 
@@ -92,7 +129,7 @@ class ContractCitationVerifier:
         citation: CitationRecord,
         evidence: EvidenceRecord | None = None,
     ) -> CitationVerificationResult:
-        """Verify a single citation record against an authoritative evidence record."""
+        """Verify a single citation record against an authoritative evidence record and catalog."""
         # 1. Structural checks
         if not citation.citation_id or not citation.citation_id.strip():
             return CitationVerificationResult(
@@ -233,39 +270,138 @@ class ContractCitationVerifier:
                 citation_id=citation.citation_id,
                 is_valid=False,
                 reason_code=CitationVerificationReason.EVIDENCE_UNVERIFIED,
-                message=f"Referenced evidence record status is '{evidence.verification_status}', not 'verified'",
+                message=f"Referenced evidence record status is '{evidence.verification_status.value}', not 'verified'",
                 structural_validity=True,
                 evidence_record_matched=True,
                 catalog_verified=False,
                 claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
             )
 
-        # 3. Catalog verification
-        catalog_verified = False
-        if self._trusted_catalog is not None:
-            if citation.document_id not in self._trusted_catalog:
+        # 3. Catalog verification (FAIL CLOSED)
+        # Without an explicit trusted catalog, verification CANNOT pass.
+        if self._trusted_catalog is None:
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_NOT_EVALUABLE,
+                message="Trusted document catalog is unavailable; failing closed. Cannot approve citation without trusted catalog.",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
+
+        if citation.document_id not in self._trusted_catalog:
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_DOCUMENT_NOT_FOUND,
+                message=f"Document '{citation.document_id}' is not registered in trusted document catalog",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
+
+        # Validate that the catalog record establishes genuine trust and matches citation metadata
+        raw_entry = self._trusted_catalog[citation.document_id]
+        if isinstance(raw_entry, TrustedDocumentEntry):
+            catalog_entry = raw_entry
+        elif isinstance(raw_entry, dict):
+            try:
+                entry_data = dict(raw_entry)
+                entry_data.setdefault("document_id", citation.document_id)
+                entry_data.setdefault("title", citation.title)
+                catalog_entry = TrustedDocumentEntry(**entry_data)
+            except (ValidationError, TypeError, ValueError) as e:
                 return CitationVerificationResult(
                     citation_id=citation.citation_id,
                     is_valid=False,
-                    reason_code=CitationVerificationReason.CATALOG_DOCUMENT_NOT_FOUND,
-                    message=f"Document '{citation.document_id}' is not registered in trusted document catalog",
+                    reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                    message=f"Catalog record for '{citation.document_id}' is malformed: {e}",
                     structural_validity=True,
                     evidence_record_matched=True,
                     catalog_verified=False,
                     claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
                 )
-            catalog_verified = True
+        else:
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                message=f"Catalog entry for '{citation.document_id}' is not an authoritative record",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
 
-        # Contract passed: Reference and structure are valid.
+        if not catalog_entry.is_active:
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_DOCUMENT_INACTIVE,
+                message=f"Document '{citation.document_id}' is marked inactive in trusted catalog",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
+
+        if catalog_entry.source_tier != citation.source_tier:
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                message=f"Catalog source tier '{catalog_entry.source_tier}' mismatches citation '{citation.source_tier}'",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
+
+        if (
+            catalog_entry.document_hash
+            and evidence.document_hash
+            and catalog_entry.document_hash != evidence.document_hash
+        ):
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                message="Evidence document hash does not match approved catalog hash",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
+
+        if (
+            catalog_entry.allowed_major_codes
+            and citation.major_code
+            and citation.major_code not in catalog_entry.allowed_major_codes
+        ):
+            return CitationVerificationResult(
+                citation_id=citation.citation_id,
+                is_valid=False,
+                reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                message=f"Major code '{citation.major_code}' is not authorized under catalog document '{citation.document_id}'",
+                structural_validity=True,
+                evidence_record_matched=True,
+                catalog_verified=False,
+                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+            )
+
+        # All 3 contract phases passed: Structural + Evidence Matching + Catalog Verification.
         # Claim grounding remains strictly PENDING until Phase 6 claim-verifier runs.
         return CitationVerificationResult(
             citation_id=citation.citation_id,
             is_valid=True,
             reason_code=CitationVerificationReason.VALID,
-            message="Citation structurally and referentially verified against evidence record",
+            message="Citation structurally verified, matched against evidence, and approved by trusted catalog",
             structural_validity=True,
             evidence_record_matched=True,
-            catalog_verified=catalog_verified,
+            catalog_verified=True,
             claim_grounding_status=VerificationStatus.PENDING,
         )
 
@@ -274,7 +410,11 @@ class ContractCitationVerifier:
         citations: list[CitationRecord],
         evidence_records: list[EvidenceRecord] | dict[str, EvidenceRecord],
     ) -> BatchCitationVerificationReport:
-        """Verify an entire batch of citation records against available evidence records."""
+        """Verify an entire batch of citation records against available evidence records.
+
+        Only citations with is_valid=True are included in verified_citations.
+        Citations pending catalog verification or failing checks are placed in rejected_citations.
+        """
         if isinstance(evidence_records, list):
             evidence_map = {e.evidence_id: e for e in evidence_records}
         else:
