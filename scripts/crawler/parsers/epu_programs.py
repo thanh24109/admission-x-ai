@@ -89,6 +89,7 @@ class EpuProgramsParser:
                 att_url_full = urljoin(source_url, attachment_url)
                 att_info = self._process_attachment(
                     att_url_full,
+                    stt=stt,
                     major_code=major_code,
                     major_name=major_name,
                     download=download_attachments,
@@ -294,40 +295,43 @@ class EpuProgramsParser:
         att_url: str,
         major_code: str,
         major_name: str,
+        stt: int = 1,
         download: bool = True,
     ) -> AttachmentInfo | None:
-        """Downloads and stores a program attachment file, returning its AttachmentInfo."""
-        file_name = att_url.split("/")[-1].split("?")[0]
-        if not file_name:
-            file_name = f"{major_code}_curriculum.pdf"
+        """Downloads and stores a program attachment file, renaming according to the major."""
+        from scripts.crawler.storage import slugify_vietnamese
+
+        slug = slugify_vietnamese(major_name) if major_name else "chuong_trinh_dao_tao"
+        clean_file_name = f"{stt:02d}_{major_code}_{slug}.pdf"
 
         if not download or not self.downloader or not self.storage:
             return AttachmentInfo(
-                file_name=file_name,
+                file_name=clean_file_name,
                 source_url=att_url,
-                local_path=f"raw/pdf/{file_name}",
+                local_path=f"raw/pdf/{clean_file_name}",
                 content_type="application/pdf",
                 status="pending",
             )
 
-        logger.info("Fetching program attachment [%s]: %s", major_code, att_url)
+        logger.info("Fetching program attachment [%s] (%s): %s", major_code, clean_file_name, att_url)
         res = self.downloader.fetch(att_url)
         if not res.success or not res.content:
             logger.warning("Failed to download attachment for major %s: %s", major_code, res.error_message)
             return AttachmentInfo(
-                file_name=file_name,
+                file_name=clean_file_name,
                 source_url=att_url,
                 local_path="",
                 status="failed",
             )
 
-        # Save to storage (dedup by SHA-256)
+        # Save to storage with exact renamed filename
         rel_path, is_new = self.storage.save_raw_file(
             url=att_url,
             content=res.content,
             sha256_hash=res.sha256,
             doc_type="pdf",
-            custom_filename=file_name,
+            custom_filename=clean_file_name,
+            preserve_exact_name=True,
         )
 
         file_size = len(res.content)

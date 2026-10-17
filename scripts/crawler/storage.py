@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -17,6 +18,19 @@ from scripts.crawler.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def slugify_vietnamese(text: str, max_length: int = 100) -> str:
+    """Converts Vietnamese text to a clean ASCII slug with underscores."""
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = text.replace("đ", "d").replace("Đ", "D")
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s-]+", "_", text.strip())
+    clean = text.strip("_")
+    if len(clean) > max_length:
+        clean = clean[:max_length].rstrip("_")
+    return clean or "document"
 
 
 def sanitize_filename(name: str, max_length: int = 120) -> str:
@@ -103,6 +117,7 @@ class LocalStorageManager:
         sha256_hash: str,
         doc_type: str,
         custom_filename: str | None = None,
+        preserve_exact_name: bool = False,
     ) -> tuple[str, bool]:
         """Save binary or text content to appropriate raw directory atomically.
 
@@ -201,9 +216,12 @@ class LocalStorageManager:
         ):
             base_name += default_ext
 
-        # Prefix with short hash for collision safety and clean sorting
-        short_hash = sha256_hash[:8]
-        filename = f"{short_hash}_{base_name}"
+        # Prefix with short hash for collision safety unless preserve_exact_name is requested
+        if preserve_exact_name and custom_filename:
+            filename = custom_filename
+        else:
+            short_hash = sha256_hash[:8]
+            filename = f"{short_hash}_{base_name}"
         full_path = target_dir / filename
         tmp_path = target_dir / f"{filename}.tmp"
 
