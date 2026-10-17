@@ -298,7 +298,10 @@ npm --prefix apps/web run build
 
 - **Nhánh hiện tại:** `feat/phase-1-task-4-decision-safe-fallback`
 - **Khởi nguồn:** Từ đỉnh `origin/main` (commit `d4dbb12`)
+- **Các commit:**
+  1. `e906be4`: `feat(ai): implement deterministic decision flow and safe fallback` (Tầng quyết định tất định, thư viện fallback tiếng Việt, lắp ráp response envelope, 29 backend tests).
+  2. `86ea714`: `fix(web): remediate frontend p0 admissions hallucination and add api contract tests` (Xóa bỏ simulated RAG fallback, chuẩn hóa mock data, chống giả mạo trích dẫn, retry không trùng tin nhắn, 13 frontend tests).
 - **Quy tắc tuân thủ:**
   - Không commit trực tiếp lên `main`.
   - Không tự ý merge nhánh.
-  - Dừng lại sau khi hoàn thành Task 4, chờ review diff độc lập.
+  - Dừng lại sau khi hoàn thành Task 4, chờ review diff độc lập. Không bắt đầu Task 5.

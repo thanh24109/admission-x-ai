@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { ChatHeader } from "./ChatHeader";
 import { ChatMessageList } from "./ChatMessageList";
 import { ChatComposer } from "./ChatComposer";
@@ -8,113 +8,139 @@ import { ChatContextSidebar } from "./ChatContextSidebar";
 import { ChatMessage } from "@/types/chat";
 import { initialChatMessages } from "@/data/chatMockData";
 import { useMockAuth } from "@/lib/mockAuth";
-import { Sparkles, HelpCircle, X } from "lucide-react";
+import { Sparkles, X, RotateCw } from "lucide-react";
+import {
+  createSafeErrorAssistantMessage,
+  parseChatResponse,
+} from "@/lib/chatClient";
 
 export function CandidateChatWorkspace() {
   const [messages, setMessages] = useState<ChatMessage[]>(initialChatMessages);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [composerValue, setComposerValue] = useState("");
+  const [composerValue] = useState("");
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [failedMessage, setFailedMessage] = useState<string | null>(null);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const conversationResetIdRef = useRef<number>(0);
   const { user } = useMockAuth();
 
   const handleNewConversation = () => {
-    // Reset to welcome message
+    // Invalidate and abort any in-flight request
+    conversationResetIdRef.current += 1;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsGenerating(false);
+    setFailedMessage(null);
+    // Reset strictly to the single truthful welcome message
     setMessages([initialChatMessages[0]]);
   };
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, isRetry: boolean = false) => {
+    const trimmed = text.trim();
+    if (!trimmed || isGenerating) {
+      return;
+    }
+
+    const currentResetId = conversationResetIdRef.current;
+
+    // Abort existing in-flight request if any
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes()
     ).padStart(2, "0")}`;
 
-    const userMessage: ChatMessage = {
-      id: `msg-user-${Date.now()}`,
-      role: "user",
-      content: text,
-      timestamp: timeStr,
-    };
+    // On retry, do NOT duplicate user message in the thread
+    if (!isRetry) {
+      const userMessage: ChatMessage = {
+        id: `msg-user-${Date.now()}`,
+        role: "user",
+        content: trimmed,
+        timestamp: timeStr,
+      };
+      setMessages((prev) => [...prev, userMessage]);
+    }
 
-    setMessages((prev) => [...prev, userMessage]);
     setIsGenerating(true);
+    setFailedMessage(null);
+
+    // Timeout protection: abort after 15 seconds
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 15000);
 
     try {
       const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+      const payload: { message: string; candidate_id?: string } = {
+        message: trimmed,
+      };
+      // Truthful candidate identity: Never silently substitute a fake ID
+      if (user?.id) {
+        payload.candidate_id = user.id;
+      }
+
       const response = await fetch(`${api}/api/v1/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          candidate_id: user?.id ?? "mock-candidate-001",
-        }),
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+
+      // Check if conversation was reset while waiting for response
+      if (conversationResetIdRef.current !== currentResetId) {
+        return;
+      }
+
       if (response.ok) {
-        const data = await response.json();
+        const rawJson = await response.json();
+        const parsed = parseChatResponse(rawJson);
+
         const assistantMessage: ChatMessage = {
           id: `msg-assistant-${Date.now()}`,
           role: "assistant",
-          content: data.answer || "Cảm ơn bạn đã đặt câu hỏi. Bộ phận tuyển sinh EPU sẽ hỗ trợ bạn chi tiết.",
+          content: parsed.answer,
           timestamp: timeStr,
-          citations: data.citations?.map((c: { title: string; source: string }, idx: number) => ({
-            id: `cite-${idx}`,
-            title: c.title,
-            source: c.source,
-            page: "Trang tài liệu",
-            fileType: "pdf",
-            fileSize: "Chính thức",
-            url: "/tuyensinh",
-          })),
+          citations: parsed.citations.length > 0 ? parsed.citations : undefined,
           feedback: null,
         };
+
         setMessages((prev) => [...prev, assistantMessage]);
+        setFailedMessage(null);
         return;
       }
-    } catch {
-      // Backend unavailable: Fallback to simulated RAG assistant response
-    } finally {
-      setIsGenerating(false);
-    }
 
-    // Simulated response when API is offline or returns fallback
-    setTimeout(() => {
-      let reply = `Cảm ơn bạn đã hỏi về "${text}". Trường Đại học Điện lực hiện đang tiếp nhận hồ sơ xét tuyển theo các phương thức: thi THPT, xét học bạ, đánh giá năng lực và xét tuyển thẳng.`;
-      const lower = text.toLowerCase();
+      // Backend HTTP 4xx / 5xx error
+      const errorAssistantMsg = createSafeErrorAssistantMessage();
+      setMessages((prev) => [...prev, errorAssistantMsg]);
+      setFailedMessage(trimmed);
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
 
-      if (lower.includes("học phí")) {
-        reply = `Mức học phí năm học 2026 của Trường Đại học Điện lực được tính theo tín chỉ căn cứ theo quy định của Nhà nước đối với trường đại học công lập tự chủ:\n\n1. Khối ngành Kỹ thuật - Công nghệ: khoảng 450.000đ - 550.000đ / tín chỉ.\n2. Khối ngành Kinh tế - Quản trị: khoảng 400.000đ - 480.000đ / tín chỉ.\n\nNhà trường có nhiều chính sách học bổng và hỗ trợ học phí cho sinh viên đạt thành tích xuất sắc.`;
-      } else if (lower.includes("ngành") || lower.includes("đào tạo")) {
-        reply = `Trường Đại học Điện lực hiện đào tạo 25 ngành trình độ đại học chính quy, nổi bật gồm:\n\n1. Công nghệ kỹ thuật điện, điện tử (ngành truyền thống mũi nhọn).\n2. Công nghệ thông tin & Trí tuệ nhân tạo (AI).\n3. Kỹ thuật điều khiển và tự động hóa.\n4. Quản trị kinh doanh & Tài chính ngân hàng.\n5. Logistics và Quản lý chuỗi cung ứng.\n\nBạn có thể nhấp vào mục Ngành đào tạo để xem chi tiết khung chương trình và chỉ tiêu.`;
-      } else if (lower.includes("điểm chuẩn")) {
-        reply = `Điểm chuẩn trúng tuyển vào EPU dao động theo từng ngành và phương thức xét tuyển:\n\n1. Các ngành kỹ thuật điện, tự động hóa và CNTT thường có điểm chuẩn từ 21 - 24.5 điểm.\n2. Các ngành khối kinh tế dao động từ 20 - 23.5 điểm.\n\nChi tiết phổ điểm từng đợt được cập nhật tại Cổng thông tin tuyển sinh chính thức của trường.`;
+      // Ignore aborted requests caused by conversation reset
+      if (conversationResetIdRef.current !== currentResetId) {
+        return;
       }
 
-      const fallbackMsg: ChatMessage = {
-        id: `msg-assistant-${Date.now()}`,
-        role: "assistant",
-        content: reply,
-        timestamp: timeStr,
-        citations: [
-          {
-            id: `cite-fb-${Date.now()}`,
-            title: "Đề án tuyển sinh năm 2026",
-            source: "Trường Đại học Điện lực",
-            page: "Trang 15 - 18",
-            fileSize: "4.2 MB",
-            fileType: "pdf",
-            url: "/post/thong-tin-tuyen-sinh-dai-hoc-chinh-quy-nam-2025",
-          },
-        ],
-        extraSources: [
-          "Thông báo tuyển sinh đại học chính quy 2025 - 2026",
-          "Quy chế tuyển sinh Trường Đại học Điện lực",
-        ],
-        feedback: null,
-      };
-
-      setMessages((prev) => [...prev, fallbackMsg]);
-      setIsGenerating(false);
-    }, 600);
+      // Network error, connection refused, or timeout:
+      // Show explicit, static, non-factual error state. NEVER simulate admissions facts!
+      const errorAssistantMsg = createSafeErrorAssistantMessage();
+      setMessages((prev) => [...prev, errorAssistantMsg]);
+      setFailedMessage(trimmed);
+    } finally {
+      if (conversationResetIdRef.current === currentResetId) {
+        setIsGenerating(false);
+      }
+    }
   };
 
   const handleSelectQuestion = (question: string) => {
@@ -166,8 +192,26 @@ export function CandidateChatWorkspace() {
             onSelectChip={handleSelectChip}
             onFeedback={handleFeedback}
           />
+
+          {/* Retry Banner on Failure */}
+          {failedMessage && !isGenerating && (
+            <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/30 border-t border-amber-200 dark:border-amber-900/50 text-xs text-amber-800 dark:text-amber-200 animate-in fade-in duration-200">
+              <span className="truncate pr-2">
+                Hệ thống chưa nhận được phản hồi. Bạn có muốn thử lại câu hỏi vừa rồi không?
+              </span>
+              <button
+                type="button"
+                onClick={() => handleSendMessage(failedMessage, true)}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-[#0866D9] hover:bg-[#0756B5] text-white font-semibold shrink-0 shadow-2xs transition-colors cursor-pointer"
+              >
+                <RotateCw className="w-3 h-3" />
+                <span>Thử lại</span>
+              </button>
+            </div>
+          )}
+
           <ChatComposer
-            onSendMessage={handleSendMessage}
+            onSendMessage={(msg) => handleSendMessage(msg, false)}
             isLoading={isGenerating}
             initialValue={composerValue}
           />

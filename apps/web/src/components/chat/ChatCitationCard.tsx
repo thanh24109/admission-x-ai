@@ -13,6 +13,19 @@ interface ChatCitationCardProps {
 export function ChatCitationCard({ citation, extraSources = [] }: ChatCitationCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const hasSafeUrl = Boolean(citation.url && citation.url.trim());
+  const isExternalUrl = Boolean(citation.url && citation.url.startsWith("http"));
+
+  // Format secondary metadata without manufacturing fake page or size labels
+  const metaParts: string[] = [];
+  if (citation.page && citation.page.trim()) {
+    metaParts.push(citation.page.trim());
+  }
+  if (citation.fileSize && citation.fileSize.trim()) {
+    metaParts.push(citation.fileSize.trim());
+  }
+  const secondaryMeta = metaParts.length > 0 ? metaParts.join(" • ") : citation.source;
+
   return (
     <div className="mt-3.5 space-y-2">
       {/* 1. Main Document Citation Card */}
@@ -28,20 +41,37 @@ export function ChatCitationCard({ citation, extraSources = [] }: ChatCitationCa
               {citation.title}
             </span>
             <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] truncate">
-              {citation.page ? `${citation.page} • ` : ""}
-              {citation.fileSize ?? "Tài liệu chính thức"}
+              {secondaryMeta}
             </span>
           </div>
         </div>
 
-        {/* View Document Action */}
-        <Link
-          href={citation.url || "/tuyensinh"}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E3ECF8] dark:border-[#1E3250] bg-white dark:bg-[#0A1730] text-[#0866D9] dark:text-[#3B82F6] text-xs font-semibold hover:bg-[#EBF3FE] dark:hover:bg-[#152D52] shadow-2xs transition-colors shrink-0 ml-3"
-        >
-          <span>Xem tài liệu</span>
-          <ExternalLink className="w-3.5 h-3.5" />
-        </Link>
+        {/* Action: Only render clickable link if an authentic URL is present */}
+        {hasSafeUrl && citation.url ? (
+          isExternalUrl ? (
+            <a
+              href={citation.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E3ECF8] dark:border-[#1E3250] bg-white dark:bg-[#0A1730] text-[#0866D9] dark:text-[#3B82F6] text-xs font-semibold hover:bg-[#EBF3FE] dark:hover:bg-[#152D52] shadow-2xs transition-colors shrink-0 ml-3"
+            >
+              <span>Xem tài liệu</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          ) : (
+            <Link
+              href={citation.url}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#E3ECF8] dark:border-[#1E3250] bg-white dark:bg-[#0A1730] text-[#0866D9] dark:text-[#3B82F6] text-xs font-semibold hover:bg-[#EBF3FE] dark:hover:bg-[#152D52] shadow-2xs transition-colors shrink-0 ml-3"
+            >
+              <span>Xem tài liệu</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </Link>
+          )
+        ) : (
+          <span className="text-[11px] text-[#64748B] dark:text-[#94A3B8] px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md shrink-0 ml-3 font-medium">
+            Tài liệu đối chiếu
+          </span>
+        )}
       </div>
 
       {/* 2. Expandable Additional Sources */}
