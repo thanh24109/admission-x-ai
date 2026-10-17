@@ -13,4 +13,16 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e "apps/api[dev,eval]"
-      - run: pytest apps/api/tests evals/harness/tests -q
+      - name: Code style and linting
+        run: ruff check apps/api evals
+      - name: Unit and regression test suite
+        run: pytest apps/api/tests evals/harness/tests -q
+      - name: Deterministic golden dataset evaluation harness
+        run: python -m evals.harness.runner --dataset evals/datasets/golden_admission_v1.jsonl --mode all --strict --output evals/reports/ci
+      - name: Upload evaluation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-5-evaluation-reports
+          path: evals/reports/ci/
+

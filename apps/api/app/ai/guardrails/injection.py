@@ -33,7 +33,7 @@ _INJECTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(tiết\s+lộ|cho\s+tôi\s+biết|hiển\s+thị)\s+(toàn\s+bộ\s+)?(system\s+prompt|prompt\s+hệ\s+thống|chỉ\s+dẫn\s+hệ\s+thống)\b",
+        r"\b(tiết\s+lộ|cho\s+tôi\s+(?:biết|xem)|hiển\s+thị)\s+(toàn\s+bộ\s+)?(system\s+prompt|prompt\s+hệ\s+thống|chỉ\s+dẫn\s+hệ\s+thống)\b",
         re.IGNORECASE,
     ),
     re.compile(
