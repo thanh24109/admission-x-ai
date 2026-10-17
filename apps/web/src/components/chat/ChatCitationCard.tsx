@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { ExternalLink, ChevronDown, ChevronUp, FileText } from "lucide-react";
 import { ChatCitation } from "@/types/chat";
-import { isOfficialProvenanceUrl } from "@/lib/chatClient";
+import { isApprovedDocumentDestination } from "@/lib/chatClient";
 
 interface ChatCitationCardProps {
   citation: ChatCitation;
@@ -14,12 +14,13 @@ interface ChatCitationCardProps {
 export function ChatCitationCard({ citation, extraSources = [] }: ChatCitationCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Invariant: Clickable links require BOTH valid URL syntax AND verified official provenance
+  // Invariant: Clickable links require strict destination approval verification
+  // Never trust a raw client-facing boolean (e.g. citation.isVerifiedDestination) as proof of backend approval
   const hasValidUrl = Boolean(citation.url && citation.url.trim());
   const isClickableDestination = Boolean(
     hasValidUrl &&
     citation.url &&
-    (citation.isVerifiedDestination ?? isOfficialProvenanceUrl(citation.url))
+    isApprovedDocumentDestination(citation.url)
   );
   const isExternalUrl = Boolean(citation.url && citation.url.startsWith("http"));
 

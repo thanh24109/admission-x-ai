@@ -230,7 +230,6 @@ class DecisionEngine:
         raw_source_mode = (context.source_mode or "official_epu").lower().strip()
         is_general_knowledge = raw_source_mode == "general"
         is_mixed_mode = raw_source_mode == "mixed"
-        is_official = raw_source_mode in ("official_epu", "official")
 
         # Scenario B: Pure General Knowledge Question (RB-08)
         if is_general_knowledge:
@@ -337,26 +336,6 @@ class DecisionEngine:
                 trace_metadata=trace_meta,
             )
 
-        # Scenario F: Missing / Unsupported Evidence (RB-01)
-        if norm_evidence_status in ("missing", "unsupported", "none") or not context.evidence_items:
-            rb01_fail = report.get_result("RB-01") and report.get_result("RB-01").outcome == RuleOutcome.FAIL
-            return DecisionResult(
-                decision=DecisionAction.ABSTAIN,
-                answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
-                evidence_status=EvidenceStatus.UNSUPPORTED,
-                source_mode=self._resolve_source_mode(context.source_mode),
-                reason_code=FallbackReasonCode.INSUFFICIENT_OFFICIAL_EVIDENCE.value,
-                is_safe_to_answer=False,
-                requires_clarification=False,
-                requires_handover_confirmation=False,
-                policy_violations=["RB-01"] if rb01_fail else [],
-                safe_response_text=get_safe_fallback_text(FallbackReasonCode.INSUFFICIENT_OFFICIAL_EVIDENCE),
-                handover=HandoverInfo(offered=True, requested=context.handover_requested, reason_code="missing_evidence"),
-                resolved_major_codes=resolved_codes,
-                citations=[],
-                trace_metadata=trace_meta,
-            )
-
         # RB-04: Restricted Claims Check (Numerical tuition, cutoff, quota assertions)
         rb04_res = report.get_result("RB-04")
         if rb04_res and rb04_res.outcome in (RuleOutcome.FAIL, RuleOutcome.NOT_EVALUABLE):
@@ -372,6 +351,29 @@ class DecisionEngine:
                 policy_violations=["RB-04"] if rb04_res.outcome == RuleOutcome.FAIL else [],
                 safe_response_text=get_safe_fallback_text(FallbackReasonCode.UNVERIFIED_CLAIM),
                 handover=HandoverInfo(offered=False, requested=context.handover_requested),
+                resolved_major_codes=resolved_codes,
+                citations=[],
+                trace_metadata=trace_meta,
+            )
+
+        # Scenario F: Missing / Unsupported Evidence (RB-01)
+        if (
+            norm_evidence_status in ("missing", "unsupported", "none")
+            or not context.evidence_items
+        ) and context.intent != "counselor_request":
+            rb01_fail = report.get_result("RB-01") and report.get_result("RB-01").outcome == RuleOutcome.FAIL
+            return DecisionResult(
+                decision=DecisionAction.ABSTAIN,
+                answer_status=AnswerStatus.INSUFFICIENT_EVIDENCE,
+                evidence_status=EvidenceStatus.UNSUPPORTED,
+                source_mode=self._resolve_source_mode(context.source_mode),
+                reason_code=FallbackReasonCode.INSUFFICIENT_OFFICIAL_EVIDENCE.value,
+                is_safe_to_answer=False,
+                requires_clarification=False,
+                requires_handover_confirmation=False,
+                policy_violations=["RB-01"] if rb01_fail else [],
+                safe_response_text=get_safe_fallback_text(FallbackReasonCode.INSUFFICIENT_OFFICIAL_EVIDENCE),
+                handover=HandoverInfo(offered=True, requested=context.handover_requested, reason_code="missing_evidence"),
                 resolved_major_codes=resolved_codes,
                 citations=[],
                 trace_metadata=trace_meta,
@@ -452,18 +454,18 @@ class DecisionEngine:
         # -------------------------------------------------------------
         # 5. Handover Evaluation (Scenario K / RB-12)
         # -------------------------------------------------------------
-        if context.handover_requested:
+        if context.handover_requested or context.intent == "counselor_request":
             return DecisionResult(
                 decision=DecisionAction.OFFER_HANDOVER,
                 answer_status=AnswerStatus.HANDOVER_OFFERED,
-                evidence_status=EvidenceStatus.SUPPORTED if is_official else EvidenceStatus.NOT_APPLICABLE,
+                evidence_status=EvidenceStatus.NOT_APPLICABLE,
                 source_mode=self._resolve_source_mode(context.source_mode),
                 reason_code="HANDOVER_OFFERED_BY_USER_REQUEST",
-                is_safe_to_answer=True,
+                is_safe_to_answer=False,
                 requires_clarification=False,
-                requires_handover_confirmation=True,
+                requires_handover_confirmation=not context.handover_consent_verified,
                 policy_violations=[],
-                safe_response_text=None,
+                safe_response_text="Bạn có muốn kết nối với cán bộ tuyển sinh Trường Đại học Điện lực (EPU) để được hỗ trợ trực tiếp không?",
                 handover=HandoverInfo(
                     offered=True,
                     requested=True,
@@ -472,7 +474,7 @@ class DecisionEngine:
                     reason_code="staff_requested",
                 ),
                 resolved_major_codes=resolved_codes,
-                citations=citations_list,
+                citations=[],
                 trace_metadata=trace_meta,
             )
 

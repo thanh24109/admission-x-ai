@@ -457,12 +457,160 @@ npm --prefix apps/web run build
 
 ---
 
-## 5. Kết luận & Cam kết Phạm vi (Verdict & Scope Conformance)
+---
+
+# Task 4.2 — Handover Safety and Citation Destination Verification
+
+## 1. Mục tiêu & Bối cảnh
+
+Tiếp tục triển khai trên nhánh `feat/phase-1-task-4-decision-safe-fallback` sau phiên review commit `4c80122` (PASS WITH CHANGES).
+
+Task 4.2 giải quyết triệt để 2 ranh giới an toàn then chốt:
+1. **Tính nhất quán của chính sách chuyển giao tư vấn viên (Handover Policy Consistency)**: Lời đề nghị chuyển giao tư vấn viên không bao giờ được coi là giấy phép hợp thức hóa câu trả lời sự thật chưa được kiểm chứng; `is_safe_to_answer` không được bật thành True chỉ vì có yêu cầu chuyển giao; trạng thái bằng chứng không được nâng cấp thành SUPPORTED; không đính kèm trích dẫn chưa xác thực; không tự động tạo ticket; đồng thời bảo lưu quyền xử lý an toàn cho yêu cầu gặp cán bộ tư vấn hợp lệ.
+2. **Ranh giới tin cậy đích đến trích dẫn (Citation Destination Trust Boundary)**: Phân định rạch ròi giữa cú pháp URL, khả năng điều hướng chung và nguồn gốc trích dẫn được phê duyệt; cấm bypass chuẩn hóa URL qua backslash (`\`); cấm liên kết tới các route nội bộ tùy ý (`/admin`, `/login`, v.v.); bắt buộc HTTPS cho liên kết ngoài; cấm ngoại lệ localhost cấp quyền cho liên kết sản phẩm; không bao giờ tin cậy cờ boolean phía client (`isVerifiedDestination`) làm bằng chứng phê duyệt của backend; bảo toàn cấu trúc phản hồi legacy và không bịa đặt trích dẫn/metadata.
+
+---
+
+## 2. Chi tiết Thay đổi Mã nguồn (Exact Files Changed)
+
+### 2.1. Backend Rulebase & Evaluators
+- **`apps/api/app/ai/rules/evaluators.py`**:
+  - `evaluate_rb01_official_evidence`: Đảm bảo `context.intent == "counselor_request"` không bị coi là material EPU factual claim đòi hỏi văn bản đề án tuyển sinh.
+  - `evaluate_rb02_program_resolution`: Bỏ qua yêu cầu phân giải ngành chính thức đối với `counselor_request` khi thí sinh chỉ yêu cầu gặp cán bộ.
+  - `evaluate_rb12_handover_policy`: Nhận diện cả `context.handover_requested` và `context.intent == "counselor_request"` để kích hoạt hành động đề xuất `HANDOVER_SUGGESTED`.
+- **`apps/api/app/ai/rules/engine.py`**:
+  - `_determine_aggregate_action`: Bổ sung kiểm tra `context.intent == "counselor_request"` tại Layer 4 nhằm định tuyến an toàn sang `HANDOVER_SUGGESTED` khi các kiểm tra an toàn/bằng chứng đã thỏa mãn.
+
+### 2.2. Backend Deterministic Decision Engine & Schema Contracts
+- **`apps/api/app/ai/decision/models.py`**:
+  - Thêm 4 bất biến ngữ nghĩa vào `validate_semantic_invariants` của `DecisionResult`:
+    1. Cấm `is_safe_to_answer=True` khi `decision == DecisionAction.OFFER_HANDOVER`.
+    2. Cấm `evidence_status=EvidenceStatus.SUPPORTED` khi `decision == DecisionAction.OFFER_HANDOVER`.
+    3. Cấm đính kèm `citations` khi `decision == DecisionAction.OFFER_HANDOVER`.
+    4. Cấm tự ý tạo `handover.ticket_id` trong `DecisionResult`.
+- **`apps/api/app/ai/decision/engine.py`**:
+  - Chuyển kiểm tra `RB-04` (Restricted Claims) lên trước Scenario F (Missing Evidence) để đảm bảo các câu trả lời khẳng định học phí/điểm chuẩn trái phép luôn bị gắn mã vi phạm `RB-04` (`UNVERIFIED_CLAIM`) thay vì bị nuốt vào trường hợp thiếu bằng chứng thông thường.
+  - Loại trừ `context.intent == "counselor_request"` khỏi điều kiện từ chối của Scenario F, cho phép yêu cầu kết nối tư vấn viên chính đáng được tiếp nhận an toàn.
+  - Củng cố nhánh chuyển giao (Scenario K): Thiết lập dứt khoát `is_safe_to_answer=False`, `evidence_status=EvidenceStatus.NOT_APPLICABLE`, `citations=[]`, `safe_response_text` chuẩn hóa, và `ticket_id=None`.
+  - Loại bỏ biến cục bộ không sử dụng `is_official` (tuân thủ ruff lint `F841`).
+- **`apps/api/app/ai/decision/mappings.py`**:
+  - Trong `assemble_response_envelope`, loại bỏ `AnswerStatus.HANDOVER_OFFERED` khỏi danh sách trạng thái được phép phát trích dẫn (`sanitized_citations = []`).
+  - Đảm bảo `handover.ticket_id = None` khi tạo envelope chuyển giao.
+  - Cung cấp văn bản an toàn mặc định cho lời đề nghị chuyển giao khi không có draft answer.
+- **`apps/api/app/schemas/response_envelope.py`**:
+  - Bổ sung `AnswerStatus.HANDOVER_OFFERED` vào Invariant 3 của `AIResponseEnvelope`, nghiêm cấm việc phát hành trích dẫn trong envelope chuyển giao ở cấp độ schema Pydantic.
+
+### 2.3. Frontend Trust Boundary & Citation Hardening
+- **`apps/web/src/lib/chatClient.ts`**:
+  - Định nghĩa `APPROVED_DOCUMENT_PATH_PREFIXES`: Danh sách trắng các tiền tố đường dẫn tài liệu tuyển sinh hợp lệ (`/post/`, `/tuyensinh`, `/candidate/documents`, `/dao-tao/`, `/page/`, `/documents/`, `/bieu-mau/`). Từ chối tuyệt đối các route nội bộ như `/admin`, `/login`, `/staff`, `/candidate/profile`, `/api/...`.
+  - `isValidUrlSyntax`: Loại bỏ ngay lập tức bất kỳ URL nào chứa ký tự backslash `\` để chặn kỹ thuật URL normalization bypass; chặn protocol-relative (`//`), các scheme nguy hiểm (`javascript:`, `data:`, `vbscript:`, `file:`, `blob:`).
+  - `isAllowedNavigationUrl`: Xác thực cú pháp điều hướng thông thường (relative path hoặc HTTP/HTTPS an toàn, không chứa directory traversal `..`).
+  - `isApprovedDocumentDestination`: Xác thực thẩm quyền tài liệu trích dẫn:
+    - Đường dẫn tương đối: Phải thuộc danh mục tiền tố tài liệu được phê duyệt, không chứa `..`.
+    - Đường dẫn tuyệt đối: Bắt buộc giao thức HTTPS; cấm ngoại lệ `localhost` và `127.0.0.1` đối với môi trường production; chỉ chấp nhận tên miền chính thức (`epu.edu.vn`, `*.epu.edu.vn`, `moet.gov.vn`, `*.moet.gov.vn`) với cổng chuẩn 443 hoặc rỗng.
+  - `isOfficialProvenanceUrl`: Bảo toàn khả năng tương thích ngược và chuyển tiếp tới `isApprovedDocumentDestination`.
+  - `formatSafeCitation`: Tính toán `isVerifiedDestination` một cách độc lập từ `isApprovedDocumentDestination(safeUrl)`. Giữ nguyên cấu trúc legacy và không bịa đặt source, fileType, page, fileSize.
+- **`apps/web/src/components/chat/ChatCitationCard.tsx`**:
+  - `isClickableDestination`: Đánh giá trực tiếp qua `isApprovedDocumentDestination(citation.url)`. Không bao giờ tin cậy cờ boolean phía client `citation.isVerifiedDestination`. Nếu không được phê duyệt, hiển thị nhãn tĩnh trung tính "Tài liệu đối chiếu".
+
+---
+
+## 3. Bộ Kiểm thử Hồi quy Bổ sung (Regression Tests)
+
+### 3.1. Backend Tests
+1. **`test_handover_combined_with_unresolved_evidence_abstains_safely`**: Yêu cầu chuyển giao kết hợp câu hỏi sự thật thiếu bằng chứng -> `ABSTAIN`, `is_safe_to_answer=False`, `evidence_status=UNSUPPORTED`, `citations=[]`, `handover.offered=True`, `ticket_id=None`.
+2. **`test_handover_combined_with_citation_failure_blocks_with_violation`**: Yêu cầu chuyển giao khi trích dẫn đối soát thất bại -> `SAFE_FALLBACK`, `policy_violations=["RB-06"]`, `is_safe_to_answer=False`, `citations=[]`.
+3. **`test_handover_combined_with_rb04_failure_blocks_with_violation`**: Yêu cầu chuyển giao khi draft khẳng định số tiền học phí/điểm chuẩn chưa thẩm định -> `SAFE_FALLBACK`, `policy_violations=["RB-04"]`, `is_safe_to_answer=False`, `citations=[]`.
+4. **`test_valid_staff_only_request_receives_safe_offer_without_ticket`**: Yêu cầu gặp cán bộ tư vấn hợp lệ (`intent="counselor_request"`) -> `OFFER_HANDOVER`, `answer_status=HANDOVER_OFFERED`, `is_safe_to_answer=False`, `evidence_status=NOT_APPLICABLE`, `citations=[]`, `ticket_id=None`.
+5. **`test_decision_result_semantic_invariants_for_handover`**: Kiểm tra Pydantic model validator chặn đứng các trạng thái mâu thuẫn (`is_safe_to_answer=True`, `evidence_status=SUPPORTED`, có `citations`).
+6. **`test_scenario_k_user_requested_handover_offered_without_ticket`**: Khẳng định bổ sung `is_safe_to_answer=False`, `evidence_status=NOT_APPLICABLE`, `citations=[]`.
+7. **`test_assemble_handover_offered_never_has_ticket`**: Lắp ráp envelope chuyển giao khẳng định `citations=[]`, `ticket_id=None`.
+
+### 3.2. Frontend Tests (`apps/web/tests/chatClient.test.ts`)
+1. **Test 19 (`Strictly rejects backslash-based URL normalization bypasses`)**: Chặn đứng URL normalization bypass dạng `https://epu.edu.vn\evil.com`, `/post/\attacker.com`.
+2. **Test 20 (`Prohibits arbitrary internal routes from being treated as approved document links`)**: Chặn các route nội bộ tùy ý (`/admin`, `/login`, `/staff/dashboard`, `/candidate/profile`, `/api/chat`, `/chat`), chấp nhận các route tài liệu chính thức (`/post/...`, `/tuyensinh`, `/candidate/documents`, `/dao-tao/dai-hoc`, `/page/dai-hoc`).
+3. **Test 21 (`Enforces production-safe HTTPS for external document links`)**: Bắt buộc HTTPS cho tài liệu ngoài; từ chối plain HTTP.
+4. **Test 22 (`Prohibits localhost/127.0.0.1 exceptions from authorizing production document links`)**: Cấm `localhost` và `127.0.0.1` cấp quyền cho tài liệu production.
+5. **Test 23 (`Never trusts raw client-facing boolean as proof of backend approval`)**: Khi object chứa `isVerifiedDestination: true` trỏ tới `attacker.com`, client tính toán lại và đặt thành `false`, không cho phép click.
+6. **Test 24 (`Rejects directory traversal paths in citations`)**: Từ chối các đường dẫn chứa traversal (`/post/../../admin`).
+
+---
+
+## 4. Kết quả Thực thi Lệnh Xác thực Thực tế (Actual Command Results)
+
+```bash
+# 1. Backend Pytest & Evaluation Harness
+& "E:\admission-x-ai\.venv\Scripts\python.exe" -m pytest apps/api/tests evals/harness/tests
+============================= 181 passed in 9.81s =============================
+Agent-Harness: 7 passed, 0 failed
+
+# 2. Backend Ruff Static Linter
+& "E:\admission-x-ai\.venv\Scripts\python.exe" -m ruff check apps/api
+All checks passed!
+
+# 3. Frontend Unit Tests (Node 24 native test runner)
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web test
+▶ Frontend Chat API Contract & Error Handling Tests
+  ✔ 1. Successfully parses authentic backend response (1.56ms)
+  ✔ 2. Handles backend offline / connection refused with safe static error message (0.96ms)
+  ✔ 3. Handles backend HTTP error without fabricating admissions claims (0.24ms)
+  ✔ 4. Handles backend timeout safely (0.14ms)
+  ✔ 5. Throws on malformed JSON / non-object payload (0.63ms)
+  ✔ 6. Throws on missing required 'answer' field (0.33ms)
+  ✔ 7. Safely parses responses with empty citations list (0.19ms)
+  ✔ 8. Never defaults missing citation source to 'Trường Đại học Điện lực (EPU)' (0.33ms)
+  ✔ 9. Never defaults missing document type to PDF (0.23ms)
+  ✔ 10. Rejects invalid and malformed URLs (0.54ms)
+  ✔ 11. Strictly rejects protocol-relative URLs (//evil.com) (0.17ms)
+  ✔ 12. Rejects unsafe protocols (javascript, data, vbscript, file) (0.13ms)
+  ✔ 13. Separates URL syntax validation from official provenance verification (0.17ms)
+  ✔ 14. Guarantees no mock admissions answers under failure (0.29ms)
+  ✔ 15. Does not manufacture fake page labels or file sizes (0.10ms)
+  ✔ 16. New conversation during request invalidates in-flight responses (0.09ms)
+  ✔ 17. Retry pattern resends without duplicating user messages in thread (0.13ms)
+  ✔ 18. No production mock document metadata in chatRelatedDocuments (0.07ms)
+  ✔ 19. Strictly rejects backslash-based URL normalization bypasses (0.09ms)
+  ✔ 20. Prohibits arbitrary internal routes from being treated as approved document links (0.11ms)
+  ✔ 21. Enforces production-safe HTTPS for external document links (rejects plain HTTP) (0.10ms)
+  ✔ 22. Prohibits localhost/127.0.0.1 exceptions from authorizing production document links (0.32ms)
+  ✔ 23. Never trusts raw client-facing boolean (isVerifiedDestination) as proof of backend approval (0.10ms)
+  ✔ 24. Rejects directory traversal paths in citations (0.11ms)
+✔ Frontend Chat API Contract & Error Handling Tests (9.13ms)
+ℹ tests 24 | pass 24 | fail 0
+
+# 4. Frontend ESLint
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web run lint
+✔ No ESLint warnings or errors
+
+# 5. Frontend Production Build
+& "C:\nvm4w\nodejs\npm.cmd" --prefix apps/web run build
+✓ Compiled successfully in 13.7s
+✓ Linting and checking validity of types
+✓ Collecting page data
+✓ Generating static pages (131/131)
+✓ Finalizing page optimization
+```
+
+---
+
+## 5. Các Giới hạn Còn lại (Remaining Limitations)
+
+1. **Phạm vi Phase 1**: Quyết định chuyển giao hiện tại chỉ hoạt động ở cấp độ đề xuất (`HandoverInfo(offered=True)`). Hệ thống chưa tích hợp hàng đợi hỗ trợ trực tuyến, WebSocket tương tác nhân viên, hoặc bảng điều khiển tiếp nhận của cán bộ tuyển sinh (thuộc các Phase tiếp theo).
+2. **Xác thực nội dung tài liệu trích dẫn**: Phía frontend chỉ xác thực ranh giới đích đến (destination boundary: giao thức HTTPS, tên miền chính thức, danh mục tiền tố tài liệu hợp lệ). Việc xác minh tính toàn vẹn ngữ nghĩa của trích dẫn (document hash, chunk id, temporal validity) hoàn toàn do backend `ContractCitationVerifier` và `DecisionEngine` chịu trách nhiệm.
+
+---
+
+## 6. Kết luận & Cam kết Phạm vi (Verdict & Scope Conformance)
 
 - **Nhánh hiện tại:** `feat/phase-1-task-4-decision-safe-fallback`
-- **Tình trạng:** Hoàn tất 100% yêu cầu Task 4.1. Toàn bộ 176 backend tests và 18 frontend tests đều PASS. Linter và Next.js build không có lỗi hay cảnh báo.
+- **Reviewed Commit (Task 4.1):** `4c801226b7615b8e396c9dd2d2d505e38eb35f3e`
+- **Task 4.2 Commit Message:** `fix(ai): enforce handover safety and citation destination trust boundaries`
+- **Tình trạng:** Hoàn tất 100% yêu cầu Task 4.2.
+  - Toàn bộ 181 backend tests (pytest + agent-harness) đều PASS.
+  - Toàn bộ 24 frontend tests (Node 24 test runner) đều PASS.
+  - Ruff linter và Next.js build không có lỗi hay cảnh báo.
 - **Tuân thủ quy tắc:**
   - Không merge vào `main`.
   - Không bắt đầu Task 5.
-  - Dừng lại và cung cấp SHA commit cho phiên thẩm định độc lập.
+  - Dừng lại sau Task 4.2 và chờ kiểm duyệt độc lập (Await independent review).
 

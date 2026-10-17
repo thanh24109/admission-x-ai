@@ -249,7 +249,7 @@ class AIResponseEnvelope(BaseModel):
                 f"evidence_status '{self.evidence_status}' cannot emit citations"
             )
 
-        # Invariant 3: Insufficient evidence, error, out of scope, or rejected answers cannot emit citations
+        # Invariant 3: Insufficient evidence, error, out of scope, rejected, or handover offered answers cannot emit citations
         if (
             self.answer_status
             in (
@@ -257,6 +257,7 @@ class AIResponseEnvelope(BaseModel):
                 AnswerStatus.OUT_OF_SCOPE,
                 AnswerStatus.REJECTED,
                 AnswerStatus.ERROR,
+                AnswerStatus.HANDOVER_OFFERED,
             )
             and len(self.citations) > 0
         ):

@@ -20,16 +20,36 @@ export interface ParsedChatSuccess {
 }
 
 /**
- * Validates URL syntax and rejects dangerous or malformed destinations.
+ * Approved document destination route prefixes for the official portal.
+ * Arbitrary internal routes (e.g. /admin, /login, /candidate/profile, /api) are prohibited.
+ */
+export const APPROVED_DOCUMENT_PATH_PREFIXES = [
+  "/post/",
+  "/tuyensinh",
+  "/candidate/documents",
+  "/dao-tao/",
+  "/page/",
+  "/documents/",
+  "/bieu-mau/",
+] as const;
+
+/**
+ * Validates URL syntax and rejects dangerous, malformed, or normalization-bypass destinations.
  *
  * Rejection criteria:
  * - Empty, whitespace, or newlines
- * - Protocol-relative URLs (e.g., '//malicious.com')
+ * - Backslashes ('\') used for URL normalization bypasses
+ * - Protocol-relative URLs (starts with '//')
  * - Dangerous schemes (javascript:, data:, vbscript:, file:, blob:)
  * - Malformed URIs that throw on parsing
  */
 export function isValidUrlSyntax(rawUrl: string): boolean {
   if (!rawUrl || typeof rawUrl !== "string") {
+    return false;
+  }
+
+  // Reject backslash-based URL normalization bypasses immediately
+  if (rawUrl.includes("\\")) {
     return false;
   }
 
@@ -57,8 +77,7 @@ export function isValidUrlSyntax(rawUrl: string): boolean {
 
   // Relative URLs starting with single slash
   if (trimmed.startsWith("/")) {
-    // Ensure not followed by another slash or backslash
-    return !trimmed.startsWith("/\\") && !trimmed.startsWith("//");
+    return !trimmed.startsWith("//") && !trimmed.startsWith("/\\");
   }
 
   // Absolute URLs: parse and ensure protocol is strictly http: or https:
@@ -71,49 +90,101 @@ export function isValidUrlSyntax(rawUrl: string): boolean {
 }
 
 /**
- * Verifies official provenance of citation destinations.
- *
- * Allowed official provenance:
- * 1. Safe relative paths within the EPU web application/portal (e.g. '/post/...', '/tuyensinh')
- * 2. Absolute URLs hosted on official EPU domains (*.epu.edu.vn or epu.edu.vn)
- * 3. Official Ministry of Education and Training portal (*.moet.gov.vn or moet.gov.vn)
- * 4. Local development hostnames (localhost, 127.0.0.1)
+ * Checks whether a URL is safe for general client navigation (not necessarily an approved citation document).
  */
-export function isOfficialProvenanceUrl(rawUrl: string): boolean {
+export function isAllowedNavigationUrl(rawUrl: string): boolean {
   if (!isValidUrlSyntax(rawUrl)) {
     return false;
   }
 
   const trimmed = rawUrl.trim();
+  if (trimmed.includes("..")) {
+    return false;
+  }
 
-  // Internal relative routes are official portal views
   if (trimmed.startsWith("/")) {
     return true;
   }
 
   try {
     const parsed = new URL(trimmed);
-    const hostname = parsed.hostname.toLowerCase();
-
-    // Check EPU official domains
-    if (hostname === "epu.edu.vn" || hostname.endsWith(".epu.edu.vn")) {
-      return true;
-    }
-
-    // Check Ministry of Education official domains
-    if (hostname === "moet.gov.vn" || hostname.endsWith(".moet.gov.vn")) {
-      return true;
-    }
-
-    // Allow local development hostnames
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return true;
-    }
-
-    return false;
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
   } catch {
     return false;
   }
+}
+
+/**
+ * Authoritatively verifies whether a destination URL points to an approved official admissions document.
+ *
+ * Strict trust boundary:
+ * 1. Syntax must be valid and free of backslashes or traversal ('..').
+ * 2. Relative links must match approved document routes (/post/, /tuyensinh, /candidate/documents, etc.).
+ *    Arbitrary internal routes (/admin, /login, /candidate/profile, /api/...) are rejected.
+ * 3. External document links MUST use production-safe HTTPS. Plain HTTP is rejected.
+ * 4. Localhost development exceptions (localhost, 127.0.0.1) NEVER authorize production links.
+ * 5. External hostnames must strictly belong to official EPU or MOET domains.
+ * 6. Ports must be standard (empty or 443).
+ */
+export function isApprovedDocumentDestination(rawUrl: string): boolean {
+  if (!isValidUrlSyntax(rawUrl)) {
+    return false;
+  }
+
+  const trimmed = rawUrl.trim();
+
+  // Reject directory traversal
+  if (trimmed.includes("..")) {
+    return false;
+  }
+
+  // Relative routes check
+  if (trimmed.startsWith("/")) {
+    return APPROVED_DOCUMENT_PATH_PREFIXES.some((prefix) => {
+      if (prefix.endsWith("/")) {
+        return trimmed.startsWith(prefix);
+      }
+      return trimmed === prefix || trimmed.startsWith(`${prefix}/`);
+    });
+  }
+
+  // Absolute URLs check
+  try {
+    const parsed = new URL(trimmed);
+
+    // External document links MUST strictly use production-safe HTTPS
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Prohibit localhost exceptions from authorizing production links
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".local")) {
+      return false;
+    }
+
+    // Port must be standard (empty or 443)
+    if (parsed.port && parsed.port !== "443") {
+      return false;
+    }
+
+    // Verify official approved domain
+    const isEpuDomain = hostname === "epu.edu.vn" || hostname.endsWith(".epu.edu.vn");
+    const isMoetDomain = hostname === "moet.gov.vn" || hostname.endsWith(".moet.gov.vn");
+
+    return isEpuDomain || isMoetDomain;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Preserves legacy verification contract for official provenance while enforcing
+ * strict destination trust boundaries without localhost exceptions.
+ */
+export function isOfficialProvenanceUrl(rawUrl: string): boolean {
+  return isApprovedDocumentDestination(rawUrl);
 }
 
 /**

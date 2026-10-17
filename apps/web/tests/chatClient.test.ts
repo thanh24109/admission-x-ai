@@ -13,6 +13,8 @@ import {
   formatSafeCitation,
   createSafeErrorAssistantMessage,
   isValidUrlSyntax,
+  isAllowedNavigationUrl,
+  isApprovedDocumentDestination,
   isOfficialProvenanceUrl,
   SAFE_STATIC_ERROR_MESSAGE,
 } from "../src/lib/chatClient.ts";
@@ -264,5 +266,81 @@ describe("Frontend Chat API Contract & Error Handling Tests", () => {
     assert.equal(initialChatMessages[0].role, "assistant");
     assert.equal(initialChatMessages[0].citations, undefined);
     assert.equal(initialChatMessages[0].extraSources, undefined);
+  });
+
+  // 19. Backslash-based URL normalization bypass rejection
+  it("19. Strictly rejects backslash-based URL normalization bypasses", () => {
+    assert.equal(isValidUrlSyntax("https://epu.edu.vn\\evil.com"), false);
+    assert.equal(isValidUrlSyntax("/post/\\attacker.com"), false);
+    assert.equal(isValidUrlSyntax("https://epu.edu.vn/post\\view"), false);
+    assert.equal(isApprovedDocumentDestination("https://epu.edu.vn\\evil.com"), false);
+
+    const citation = {
+      title: "Văn bản bypass",
+      source: "EPU",
+      url: "https://epu.edu.vn\\attacker.com/doc.pdf",
+    };
+    const formatted = formatSafeCitation(citation, 0);
+    assert.equal(formatted?.url, undefined);
+  });
+
+  // 20. Arbitrary internal routes prohibited as document links
+  it("20. Prohibits arbitrary internal routes from being treated as approved document links", () => {
+    // Prohibited arbitrary routes:
+    assert.equal(isApprovedDocumentDestination("/admin"), false);
+    assert.equal(isApprovedDocumentDestination("/login"), false);
+    assert.equal(isApprovedDocumentDestination("/staff/dashboard"), false);
+    assert.equal(isApprovedDocumentDestination("/candidate/profile"), false);
+    assert.equal(isApprovedDocumentDestination("/api/chat"), false);
+    assert.equal(isApprovedDocumentDestination("/chat"), false);
+
+    // Permitted document routes:
+    assert.equal(isApprovedDocumentDestination("/post/thong-bao-2025"), true);
+    assert.equal(isApprovedDocumentDestination("/tuyensinh"), true);
+    assert.equal(isApprovedDocumentDestination("/tuyensinh/de-an-2025.pdf"), true);
+    assert.equal(isApprovedDocumentDestination("/candidate/documents"), true);
+    assert.equal(isApprovedDocumentDestination("/candidate/documents/huong-dan.pdf"), true);
+    assert.equal(isApprovedDocumentDestination("/dao-tao/dai-hoc"), true);
+    assert.equal(isApprovedDocumentDestination("/page/dai-hoc"), true);
+  });
+
+  // 21. Production-safe HTTPS required for external document links
+  it("21. Enforces production-safe HTTPS for external document links (rejects plain HTTP)", () => {
+    assert.equal(isApprovedDocumentDestination("http://tuyensinh.epu.edu.vn/dean.pdf"), false);
+    assert.equal(isApprovedDocumentDestination("https://tuyensinh.epu.edu.vn/dean.pdf"), true);
+    assert.equal(isApprovedDocumentDestination("http://moet.gov.vn/quyche.pdf"), false);
+    assert.equal(isApprovedDocumentDestination("https://moet.gov.vn/quyche.pdf"), true);
+  });
+
+  // 22. Localhost development exceptions prohibited for production links
+  it("22. Prohibits localhost/127.0.0.1 exceptions from authorizing production document links", () => {
+    assert.equal(isApprovedDocumentDestination("http://localhost:3000/dean.pdf"), false);
+    assert.equal(isApprovedDocumentDestination("https://localhost/dean.pdf"), false);
+    assert.equal(isApprovedDocumentDestination("http://127.0.0.1:8000/dean.pdf"), false);
+    assert.equal(isApprovedDocumentDestination("https://127.0.0.1/dean.pdf"), false);
+  });
+
+  // 23. Client-facing boolean cannot authorize unverified destination
+  it("23. Never trusts raw client-facing boolean (isVerifiedDestination) as proof of backend approval", () => {
+    const untrustedCitation = {
+      title: "Tài liệu giả mạo",
+      source: "Ngoại lai",
+      url: "https://attacker.com/malicious.pdf",
+      isVerifiedDestination: true, // Untrusted client-supplied flag claiming true!
+    };
+    const formatted = formatSafeCitation(untrustedCitation, 0);
+
+    // Valid syntax preserved in safeUrl
+    assert.equal(formatted?.url, "https://attacker.com/malicious.pdf");
+    // But isVerifiedDestination is computed authoritatively and set to FALSE
+    assert.equal(formatted?.isVerifiedDestination, false);
+    assert.equal(isApprovedDocumentDestination(formatted?.url || ""), false);
+  });
+
+  // 24. Directory traversal and malformed paths rejected
+  it("24. Rejects directory traversal paths in citations", () => {
+    assert.equal(isApprovedDocumentDestination("/post/../../admin"), false);
+    assert.equal(isApprovedDocumentDestination("https://tuyensinh.epu.edu.vn/post/../../admin"), false);
+    assert.equal(isAllowedNavigationUrl("/post/../../admin"), false);
   });
 });

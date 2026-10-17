@@ -7,7 +7,7 @@ Covers Scenarios A through K, property invariants, and precedence.
 from app.ai.config.policy_config import RulePriority
 from app.ai.decision.engine import DecisionEngine
 from app.ai.decision.fallback import FallbackReasonCode
-from app.ai.decision.models import DecisionAction
+from app.ai.decision.models import DecisionAction, DecisionResult
 from app.ai.rules.models import (
     PolicyEvaluationContext,
     PolicyEvaluationReport,
@@ -378,6 +378,9 @@ def test_scenario_k_user_requested_handover_offered_without_ticket():
 
     assert result.decision == DecisionAction.OFFER_HANDOVER
     assert result.answer_status == AnswerStatus.HANDOVER_OFFERED
+    assert result.is_safe_to_answer is False
+    assert result.evidence_status == EvidenceStatus.NOT_APPLICABLE
+    assert result.citations == []
     assert result.handover.offered is True
     assert result.handover.requested is True
     assert result.handover.ticket_id is None  # Must NOT create ticket
@@ -627,3 +630,143 @@ def test_no_fabricated_missing_aspects_when_upstream_empty():
     assert result.decision == DecisionAction.PARTIAL_ANSWER
     assert result.is_safe_to_answer is True
     assert result.missing_aspects == []
+
+
+# -----------------------------------------------------------------------------
+# Phase 1 Task 4.2 Regression Tests (Handover Safety Consistency)
+# -----------------------------------------------------------------------------
+def test_handover_combined_with_unresolved_evidence_abstains_safely():
+    """Handover combined with missing/unresolved evidence must ABSTAIN, not answer or upgrade evidence."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Học phí trường mình là bao nhiêu? Cho tôi gặp tư vấn viên",
+        intent="admission_policy",
+        source_mode="official_epu",
+        evidence_status="missing",
+        evidence_items=[],
+        handover_requested=True,
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx, citations=[_make_mock_citation()])
+
+    assert result.decision == DecisionAction.ABSTAIN
+    assert result.answer_status == AnswerStatus.INSUFFICIENT_EVIDENCE
+    assert result.evidence_status == EvidenceStatus.UNSUPPORTED
+    assert result.is_safe_to_answer is False
+    assert result.citations == []
+    assert result.handover.offered is True
+    assert result.handover.requested is True
+    assert result.handover.ticket_id is None
+    assert "chưa có đủ thông tin chính thức" in result.safe_response_text
+
+
+def test_handover_combined_with_citation_failure_blocks_with_violation():
+    """Handover requested with citation failure (RB-06) retains precedence and falls back safely."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Cho tôi biết điểm chuẩn và nối máy tư vấn viên",
+        intent="admission_policy",
+        source_mode="official_epu",
+        evidence_status="verified",
+        evidence_items=[{"content": "Tài liệu EPU"}],
+        claim_verification_status="verified",
+        citation_verification_status="failed",  # Citation verifier failed!
+        handover_requested=True,
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.SAFE_FALLBACK
+    assert result.is_safe_to_answer is False
+    assert result.citations == []
+    assert result.evidence_status == EvidenceStatus.UNSUPPORTED
+    assert "RB-06" in result.policy_violations
+    assert result.handover.ticket_id is None
+
+
+def test_handover_combined_with_rb04_failure_blocks_with_violation():
+    """Handover requested with restricted numerical claim (RB-04) retains precedence and falls back."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Học phí ngành CNTT và cho tôi gặp nhân viên tuyển sinh",
+        intent="admission_policy",
+        source_mode="official_epu",
+        evidence_status="none",
+        draft_answer="Học phí ngành CNTT là 450.000 VNĐ/tín chỉ theo quy định.",
+        handover_requested=True,
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx)
+
+    assert result.decision == DecisionAction.SAFE_FALLBACK
+    assert result.is_safe_to_answer is False
+    assert result.citations == []
+    assert result.evidence_status == EvidenceStatus.UNSUPPORTED
+    assert "RB-04" in result.policy_violations
+    assert result.handover.ticket_id is None
+
+
+def test_valid_staff_only_request_receives_safe_offer_without_ticket():
+    """Legitimate staff-only requests receive OFFER_HANDOVER without fabricating answers or tickets."""
+    engine = DecisionEngine()
+    ctx = PolicyEvaluationContext(
+        user_message="Cho tôi nói chuyện với nhân viên tư vấn tuyển sinh",
+        intent="counselor_request",
+        source_mode="official_epu",
+        evidence_items=[],
+        handover_requested=True,
+        handover_consent_verified=False,
+        backend_available=True,
+    )
+    result = engine.evaluate_decision(ctx, citations=[_make_mock_citation()])
+
+    assert result.decision == DecisionAction.OFFER_HANDOVER
+    assert result.answer_status == AnswerStatus.HANDOVER_OFFERED
+    assert result.is_safe_to_answer is False  # Never authorizes unverified factual answers!
+    assert result.evidence_status == EvidenceStatus.NOT_APPLICABLE  # Never upgrades to SUPPORTED!
+    assert result.citations == []  # Never attaches unverified citations!
+    assert result.handover.offered is True
+    assert result.handover.requested is True
+    assert result.handover.ticket_id is None  # Never creates ticket autonomously!
+    assert result.policy_violations == []
+    assert "kết nối với cán bộ tuyển sinh" in result.safe_response_text
+
+
+def test_decision_result_semantic_invariants_for_handover():
+    """DecisionResult model validator forbids unsafe contradictory handover configurations."""
+    import pytest
+
+    # 1. Contradiction: OFFER_HANDOVER cannot have is_safe_to_answer=True
+    with pytest.raises(ValueError, match="is_safe_to_answer=True but decision is OFFER_HANDOVER"):
+        DecisionResult(
+            decision=DecisionAction.OFFER_HANDOVER,
+            answer_status=AnswerStatus.HANDOVER_OFFERED,
+            evidence_status=EvidenceStatus.NOT_APPLICABLE,
+            source_mode=SourceMode.OFFICIAL_EPU,
+            reason_code="HANDOVER",
+            is_safe_to_answer=True,  # Invalid!
+        )
+
+    # 2. Contradiction: OFFER_HANDOVER cannot have evidence_status=SUPPORTED
+    with pytest.raises(ValueError, match="cannot have evidence_status=SUPPORTED"):
+        DecisionResult(
+            decision=DecisionAction.OFFER_HANDOVER,
+            answer_status=AnswerStatus.HANDOVER_OFFERED,
+            evidence_status=EvidenceStatus.SUPPORTED,  # Invalid!
+            source_mode=SourceMode.OFFICIAL_EPU,
+            reason_code="HANDOVER",
+            is_safe_to_answer=False,
+        )
+
+    # 3. Contradiction: OFFER_HANDOVER cannot carry citations
+    with pytest.raises(ValueError, match="Handover-only decision cannot carry citations"):
+        DecisionResult(
+            decision=DecisionAction.OFFER_HANDOVER,
+            answer_status=AnswerStatus.HANDOVER_OFFERED,
+            evidence_status=EvidenceStatus.NOT_APPLICABLE,
+            source_mode=SourceMode.OFFICIAL_EPU,
+            reason_code="HANDOVER",
+            is_safe_to_answer=False,
+            citations=[_make_mock_citation()],  # Invalid!
+        )
+

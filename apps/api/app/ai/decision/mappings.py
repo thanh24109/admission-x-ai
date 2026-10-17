@@ -53,14 +53,17 @@ def assemble_response_envelope(
             raise ValueError(
                 "Cannot assemble an ANSWERED or PARTIAL response envelope without verified_answer or safe_response_text."
             )
-        answer_text = "Hệ thống tư vấn tuyển sinh EPU đã ghi nhận thông tin."
+        if decision_result.answer_status == AnswerStatus.HANDOVER_OFFERED:
+            answer_text = "Bạn có muốn kết nối với cán bộ tuyển sinh Trường Đại học Điện lực (EPU) để được hỗ trợ trực tiếp không?"
+        else:
+            answer_text = "Hệ thống tư vấn tuyển sinh EPU đã ghi nhận thông tin."
 
-    # Filter/enforce citation safety invariants
+    # Filter/enforce citation safety invariants:
+    # INVARIANT: Handover-only, Insufficient evidence, Error, Clarification, or Out-of-scope NEVER carry citations.
     sanitized_citations: list[CitationRecord] = []
     if decision_result.answer_status in (
         AnswerStatus.ANSWERED,
         AnswerStatus.PARTIAL,
-        AnswerStatus.HANDOVER_OFFERED,
     ):
         if decision_result.source_mode == SourceMode.GENERAL:
             # General knowledge cannot carry official EPU PDF citations
@@ -70,8 +73,12 @@ def assemble_response_envelope(
         else:
             sanitized_citations = list(decision_result.citations)
     else:
-        # INSUFFICIENT_EVIDENCE, CLARIFICATION_NEEDED, ERROR, REJECTED, OUT_OF_SCOPE must have empty citations
         sanitized_citations = []
+
+    # Handover invariant: handover offer never implies a completed ticket
+    handover_info = decision_result.handover
+    if decision_result.answer_status == AnswerStatus.HANDOVER_OFFERED and handover_info.ticket_id is not None:
+        handover_info = handover_info.model_copy(update={"ticket_id": None})
 
     return AIResponseEnvelope(
         response_id=resp_id,
@@ -83,7 +90,7 @@ def assemble_response_envelope(
         intent=intent,
         resolved_major_codes=decision_result.resolved_major_codes,
         citations=sanitized_citations,
-        handover=decision_result.handover,
+        handover=handover_info,
         policy_version=policy_version,
         prompt_version=prompt_version,
         confidence=confidence,

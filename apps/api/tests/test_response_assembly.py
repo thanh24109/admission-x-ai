@@ -123,22 +123,24 @@ def test_assemble_handover_offered_never_has_ticket():
     decision = DecisionResult(
         decision=DecisionAction.OFFER_HANDOVER,
         answer_status=AnswerStatus.HANDOVER_OFFERED,
-        evidence_status=EvidenceStatus.SUPPORTED,
+        evidence_status=EvidenceStatus.NOT_APPLICABLE,
         source_mode=SourceMode.OFFICIAL_EPU,
         reason_code="HANDOVER_OFFERED_BY_USER_REQUEST",
-        is_safe_to_answer=True,
+        is_safe_to_answer=False,
+        safe_response_text="Bạn có muốn kết nối với cán bộ tuyển sinh Trường Đại học Điện lực (EPU) để được hỗ trợ trực tiếp không?",
         handover=HandoverInfo(offered=True, requested=True, ticket_id=None),
     )
 
     envelope = assemble_response_envelope(
         decision,
         response_id="resp-handover-01",
-        verified_answer="Bạn có muốn kết nối với cán bộ tuyển sinh không?",
     )
 
     assert envelope.handover.offered is True
     assert envelope.handover.requested is True
     assert envelope.handover.ticket_id is None
+    assert envelope.citations == []
+    assert "kết nối với cán bộ tuyển sinh" in envelope.answer
 
 
 def test_no_fabricated_supported_answer_text_when_verified_answer_absent():

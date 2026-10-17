@@ -196,7 +196,7 @@ class RulebaseEngine:
 
         # --- Layer 4: Answer Format and Tone ---
         # User Handover Requested (RB-12) - reached ONLY after safety, ambiguity, and evidence checks pass
-        if context.handover_requested:
+        if context.handover_requested or context.intent == "counselor_request":
             return RecommendedAction.HANDOVER_SUGGESTED
 
         # --- Fallback Handling ---

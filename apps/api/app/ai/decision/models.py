@@ -135,4 +135,15 @@ class DecisionResult(BaseModel):
         if self.handover.ticket_id is not None:
             raise ValueError("DecisionResult cannot create handover tickets autonomously")
 
+        # 6. Handover safety invariants:
+        # A handover offer never authorizes an unverified factual answer
+        if self.decision == DecisionAction.OFFER_HANDOVER and self.is_safe_to_answer:
+            raise ValueError("Contradictory state: is_safe_to_answer=True but decision is OFFER_HANDOVER")
+        # Handover does not upgrade evidence status to SUPPORTED
+        if self.decision == DecisionAction.OFFER_HANDOVER and self.evidence_status == EvidenceStatus.SUPPORTED:
+            raise ValueError("Handover offer cannot have evidence_status=SUPPORTED")
+        # No unverified citations are attached to a handover-only response
+        if self.decision == DecisionAction.OFFER_HANDOVER and self.citations:
+            raise ValueError("Handover-only decision cannot carry citations")
+
         return self
