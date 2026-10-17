@@ -178,9 +178,9 @@ def test_contract_adapter_evaluates_synthetic_fixture() -> None:
     """Verify ResponseContractAdapter tests response envelope and citation constraints."""
     case = _make_case(
         case_id="synth-contract-01",
-        category=CaseCategory.SAFETY,
+        category=CaseCategory.CONTRACT,
         question="Synthetic citation envelope contract test",
-        behavior="enforce_policy_without_fabrication",
+        behavior="validate_response_envelope",
         gt_status=GroundTruthStatus.POLICY_ONLY,
     )
     case_synthetic = case.model_copy(update={"fixture_type": "synthetic"})
@@ -191,3 +191,57 @@ def test_contract_adapter_evaluates_synthetic_fixture() -> None:
     assert res.evaluation_type == "contract"
     assert res.observation is not None
     assert res.observation.raw_output.get("contract_verified") is True
+
+
+def test_contract_adapter_exercises_all_synthetic_cases() -> None:
+    """Task 5.2 P1: Verify that all 8 scenarios in synthetic_contracts_v1 pass contract quality gates."""
+    from evals.harness.loader import load_golden_dataset
+
+    cases = load_golden_dataset("evals/datasets/synthetic_contracts_v1.jsonl")
+    assert len(cases) == 8, f"Expected 8 synthetic contract cases, got {len(cases)}"
+
+    adapter = ResponseContractAdapter()
+    for case in cases:
+        assert adapter.supports_case(case), f"Contract adapter must support case '{case.id}'"
+        res = adapter.evaluate(case)
+        assert res.result == EvaluationResultStatus.PASS, (
+            f"Case '{case.id}' failed contract evaluation: {res.failure_reasons}"
+        )
+        assert res.observation is not None
+        assert res.observation.raw_output.get("contract_verified") is True
+
+
+def test_contract_adapter_negative_control_forced_fail() -> None:
+    """Task 5.2 P1: Negative control proving adapter fails when negative expectation is triggered."""
+    case = GoldenCase(
+        id="synth-contract-01",
+        category="contract",
+        scenario_type="valid_envelope",
+        question="Forced negative control test",
+        expected_behavior="validate_response_envelope",
+        fixture_type="synthetic",
+        controlled_context={"expected_outcome": "FAIL"},
+    )
+    adapter = ResponseContractAdapter()
+    res = adapter.evaluate(case)
+
+    assert res.result == EvaluationResultStatus.FAIL
+    assert any("Negative control expected FAIL" in r for r in res.failure_reasons)
+
+
+def test_policy_and_decision_adapters_skip_contract_category() -> None:
+    """Verify policy and decision adapters do not execute on contract synthetic fixtures."""
+    contract_case = GoldenCase(
+        id="synth-contract-01",
+        category="contract",
+        question="Contract test",
+        expected_behavior="validate_response_envelope",
+        fixture_type="synthetic",
+    )
+    policy_adapter = PolicyEvaluationAdapter()
+    decision_adapter = DecisionEvaluationAdapter()
+    contract_adapter = ResponseContractAdapter()
+
+    assert not policy_adapter.supports_case(contract_case)
+    assert not decision_adapter.supports_case(contract_case)
+    assert contract_adapter.supports_case(contract_case)

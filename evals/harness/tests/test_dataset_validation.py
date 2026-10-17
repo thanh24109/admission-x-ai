@@ -178,6 +178,59 @@ def test_reject_malformed_jsonl(tmp_path: Path) -> None:
     assert any("Malformed JSON on line 2" in err for err in report.errors)
 
 
+def test_synthetic_contracts_v1_dataset_integrity() -> None:
+    """Verify that synthetic_contracts_v1.jsonl passes dataset validation rules."""
+    synth_path = Path("evals/datasets/synthetic_contracts_v1.jsonl")
+    assert synth_path.exists(), f"Synthetic dataset not found at {synth_path}"
+    report = validate_dataset_file(synth_path, check_v1_distribution=False)
+
+    assert report.is_valid, f"Synthetic dataset validation failed: {report.errors}"
+    assert report.total_cases == 8
+    assert report.category_counts == {"contract": 8}
+    assert report.tier_counts == {"tier_c_synthetic": 8}
+    assert len(report.errors) == 0
+
+
+def test_sha256_hash_format_validation() -> None:
+    """Verify that validator enforces valid 64-hex SHA-256 format when source_hash is present."""
+    # Invalid hash format
+    case_invalid_hash = GoldenCase(
+        id="bad-hash-01",
+        category="contract",
+        question="Test Q",
+        expected_behavior="validate_response_envelope",
+        source_hash="not_a_real_sha256_hash_123",
+        fixture_type="synthetic",
+    )
+    report_bad = validate_golden_cases([case_invalid_hash], check_v1_distribution=False)
+    assert not report_bad.is_valid
+    assert any("Invalid source_hash format" in err for err in report_bad.errors)
+
+    # Valid hash with prefix
+    case_valid_prefix = GoldenCase(
+        id="good-hash-01",
+        category="contract",
+        question="Test Q",
+        expected_behavior="validate_response_envelope",
+        source_hash="sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        fixture_type="synthetic",
+    )
+    report_prefix = validate_golden_cases([case_valid_prefix], check_v1_distribution=False)
+    assert report_prefix.is_valid
+
+    # Valid hash without prefix
+    case_valid_raw = GoldenCase(
+        id="good-hash-02",
+        category="contract",
+        question="Test Q",
+        expected_behavior="validate_response_envelope",
+        source_hash="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        fixture_type="synthetic",
+    )
+    report_raw = validate_golden_cases([case_valid_raw], check_v1_distribution=False)
+    assert report_raw.is_valid
+
+
 def test_legacy_dataset_compatibility() -> None:
     """Verify that legacy golden_admission.jsonl loads and is parseable."""
     legacy_path = Path("evals/datasets/golden_admission.jsonl")

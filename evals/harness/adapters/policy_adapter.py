@@ -66,7 +66,8 @@ class PolicyEvaluationAdapter(EvaluationAdapter):
         return "policy_adapter"
 
     def supports_case(self, case: GoldenCase) -> bool:
-        return True
+        # Contract-category synthetic cases are evaluated by contract_adapter
+        return case.category != "contract"
 
     def evaluate(self, case: GoldenCase) -> EvaluationResult:
         start_time = time.perf_counter()

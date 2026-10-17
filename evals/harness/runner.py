@@ -110,18 +110,26 @@ def run_evaluation_suite(
     failed_scenarios = 0
     not_evaluable_scenarios = 0
     error_scenarios = 0
+    partial_coverage_scenarios = 0
 
     for case in cases:
         c_res = scenario_results.get(case.id, [])
         if not c_res:
             continue
+        has_fail = any(r.result == EvaluationResultStatus.FAIL for r in c_res)
+        has_error = any(r.result == EvaluationResultStatus.ERROR for r in c_res)
+        has_pass = any(r.result == EvaluationResultStatus.PASS for r in c_res)
+        has_ne = any(r.result == EvaluationResultStatus.NOT_EVALUABLE for r in c_res)
+
         # Precedence: FAIL > ERROR > PASS > NOT_EVALUABLE
-        if any(r.result == EvaluationResultStatus.FAIL for r in c_res):
+        if has_fail:
             failed_scenarios += 1
-        elif any(r.result == EvaluationResultStatus.ERROR for r in c_res):
+        elif has_error:
             error_scenarios += 1
-        elif any(r.result == EvaluationResultStatus.PASS for r in c_res):
+        elif has_pass:
             passed_scenarios += 1
+            if has_ne:
+                partial_coverage_scenarios += 1
         elif all(r.result == EvaluationResultStatus.NOT_EVALUABLE for r in c_res):
             not_evaluable_scenarios += 1
 
@@ -132,6 +140,7 @@ def run_evaluation_suite(
         not_evaluable_scenarios=not_evaluable_scenarios,
         error_scenarios=error_scenarios,
         unsupported_scenarios=len(unsupported_case_ids),
+        partial_coverage_scenarios=partial_coverage_scenarios,
     )
 
     # 3. Tier coverage
@@ -261,7 +270,8 @@ def main() -> int:
 
     # Step 1: Validate Dataset Integrity First
     print(f"[*] Validating dataset integrity: {args.dataset}")
-    val_report = validate_dataset_file(args.dataset, check_v1_distribution="v1" in args.dataset)
+    is_golden_v1 = "golden_admission_v1" in Path(args.dataset).stem
+    val_report = validate_dataset_file(args.dataset, check_v1_distribution=is_golden_v1)
     if not val_report.is_valid:
         print(f"[!] Dataset integrity validation FAILED:\n{val_report.summary()}", file=sys.stderr)
         return 1
@@ -284,6 +294,8 @@ def main() -> int:
     print(f"Dataset Version         : {suite.dataset_version}")
     print(f"Total Scenarios         : {suite.scenario_summary.total_scenarios}")
     print(f"Passed Scenarios        : {suite.scenario_summary.passed_scenarios}")
+    if suite.scenario_summary.partial_coverage_scenarios > 0:
+        print(f"  └─ Partial Coverage   : {suite.scenario_summary.partial_coverage_scenarios} (PASS in tested dimension, NOT_EVALUABLE in pending dimension)")
     print(f"Failed Scenarios        : {suite.scenario_summary.failed_scenarios}")
     print(f"NOT_EVALUABLE Scenarios : {suite.scenario_summary.not_evaluable_scenarios} (pending verified PDF)")
     print(f"Unsupported Scenarios   : {suite.scenario_summary.unsupported_scenarios}")

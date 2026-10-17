@@ -43,6 +43,7 @@ class CaseCategory(str, Enum):
     MISSING = "missing"
     AMBIGUITY = "ambiguity"
     SAFETY = "safety"
+    CONTRACT = "contract"
 
 
 class EvaluationResultStatus(str, Enum):
@@ -244,6 +245,7 @@ class ScenarioSummary(BaseModel):
     not_evaluable_scenarios: int = 0
     error_scenarios: int = 0
     unsupported_scenarios: int = 0
+    partial_coverage_scenarios: int = 0
 
 
 class TierCoverage(BaseModel):

@@ -18,7 +18,11 @@ jobs:
       - name: Unit and regression test suite
         run: pytest apps/api/tests evals/harness/tests -q
       - name: Deterministic golden dataset evaluation harness
-        run: python -m evals.harness.runner --dataset evals/datasets/golden_admission_v1.jsonl --mode all --strict --output evals/reports/ci
+        run: python -m evals.harness.runner --dataset evals/datasets/golden_admission_v1.jsonl --mode all --strict --output evals/reports/ci/golden
+        env:
+          PYTHONPATH: apps/api:.
+      - name: Synthetic response & citation contract evaluation harness
+        run: python -m evals.harness.runner --dataset evals/datasets/synthetic_contracts_v1.jsonl --mode contract --strict --output evals/reports/ci/contracts
         env:
           PYTHONPATH: apps/api:.
       - name: Upload evaluation reports

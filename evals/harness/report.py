@@ -37,6 +37,7 @@ def generate_markdown_report(suite_result: EvaluationSuiteResult) -> str:
     lines.append(f"- **Dataset Version:** `{sr.dataset_version}`")
     lines.append(f"- **Tổng số kịch bản (Total Scenarios):** `{sr.total_scenarios}`")
     lines.append(f"- **Kịch bản đạt chuẩn (Passed Scenarios):** `{ss.passed_scenarios}`")
+    lines.append(f"- **Kịch bản độ phủ một phần (Partial Coverage Scenarios):** `{ss.partial_coverage_scenarios}` (Đạt chiều chính sách/khế ước, chiều thực tế chưa thể đánh giá)")
     lines.append(f"- **Kịch bản chưa thể đánh giá (NOT_EVALUABLE Scenarios):** `{ss.not_evaluable_scenarios}` (Chờ kiểm chứng PDF)")
     lines.append(f"- **Kịch bản không đạt (Failed Scenarios):** `{ss.failed_scenarios}`")
     lines.append(f"- **Kịch bản lỗi (Error Scenarios):** `{ss.error_scenarios}`")
@@ -110,6 +111,12 @@ def generate_markdown_report(suite_result: EvaluationSuiteResult) -> str:
     lines.append("")
     lines.append(f"- Số kịch bản `pending_pdf_verification` (Tier B): **{tc.tier_b_pending_factual}**")
     lines.append(f"- Số lượt đánh giá `NOT_EVALUABLE`: **{sr.not_evaluable_cases}**")
+    if ss.partial_coverage_scenarios > 0:
+        lines.append(
+            f"- Số kịch bản `partial_coverage`: **{ss.partial_coverage_scenarios}** "
+            "(Đạt chuẩn ở chiều chính sách hoặc khế ước nhưng chiều dữ liệu thực tế đang chờ PDF. "
+            "Không đại diện cho độ chính xác factual end-to-end của chatbot)."
+        )
     if sr.unsupported_case_ids:
         lines.append(f"- Kịch bản không có adapter hỗ trợ: `{', '.join(sr.unsupported_case_ids)}`")
     lines.append("")

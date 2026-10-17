@@ -6,6 +6,7 @@ and trust-boundary constraints.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,16 @@ EXPECTED_V1_DISTRIBUTION: dict[str, int] = {
 
 EXPECTED_CATEGORY_COUNTS = EXPECTED_V1_DISTRIBUTION
 
+APPROVED_CATEGORIES: set[str] = {
+    CaseCategory.MAJOR.value,
+    CaseCategory.CURRICULUM.value,
+    CaseCategory.COMPARISON.value,
+    CaseCategory.MISSING.value,
+    CaseCategory.AMBIGUITY.value,
+    CaseCategory.SAFETY.value,
+    CaseCategory.CONTRACT.value,
+}
+
 APPROVED_BEHAVIORS: set[str] = {
     "official_lookup_or_not_found",
     "grounded_answer_or_abstain",
@@ -34,10 +45,20 @@ APPROVED_BEHAVIORS: set[str] = {
     # Legacy compatibility
     "grounded_answer_or_handover",
     "handover_no_guess",
+    # Contract behaviors (Task 3 & 4 quality gates)
+    "validate_response_envelope",
+    "reject_malformed_envelope",
+    "reject_forbidden_citations",
+    "reject_unknown_document",
+    "reject_mismatched_hash",
+    "reject_invalid_source_tier",
+    "map_legacy_response",
+    "handover_no_auto_ticket",
 }
 
 APPROVED_SOURCE_MODES: set[str] = {
     "official",
+    "official_epu",
     "restricted",
     "undetermined",
     "none",
@@ -132,11 +153,18 @@ def validate_golden_cases(
     # 3. Validate individual case invariants
     for case in cases:
         # Category
-        if case.category not in EXPECTED_V1_DISTRIBUTION:
-            errors.append(
-                f"Case '{case.id}': Unknown category '{case.category}'. "
-                f"Must be one of {sorted(EXPECTED_V1_DISTRIBUTION.keys())}"
-            )
+        if check_v1_distribution:
+            if case.category not in EXPECTED_V1_DISTRIBUTION:
+                errors.append(
+                    f"Case '{case.id}': Unknown category '{case.category}'. "
+                    f"Must be one of {sorted(EXPECTED_V1_DISTRIBUTION.keys())}"
+                )
+        else:
+            if case.category not in APPROVED_CATEGORIES:
+                errors.append(
+                    f"Case '{case.id}': Unknown category '{case.category}'. "
+                    f"Must be one of {sorted(APPROVED_CATEGORIES)}"
+                )
 
         # Expected behavior
         if case.expected_behavior not in APPROVED_BEHAVIORS:
@@ -158,6 +186,15 @@ def validate_golden_cases(
                 f"Case '{case.id}': Unsupported ground_truth_status '{case.ground_truth_status}'. "
                 f"Must be one of {sorted(APPROVED_GROUND_TRUTH_STATUSES)}"
             )
+
+        # SHA-256 hash format validation
+        if case.source_hash and str(case.source_hash).strip():
+            sh = str(case.source_hash).strip()
+            if not re.match(r"^(sha256:)?[a-fA-F0-9]{64}$", sh):
+                errors.append(
+                    f"Case '{case.id}': Invalid source_hash format '{case.source_hash}'. "
+                    "Expected 64-character hexadecimal SHA-256 digest, optionally prefixed with 'sha256:'."
+                )
 
         # Trust Boundary: synthetic fixtures MUST NOT be marked verified
         if case.fixture_type == "synthetic" and case.ground_truth_status == GroundTruthStatus.VERIFIED.value:
@@ -182,7 +219,7 @@ def validate_golden_cases(
             if missing_provenance:
                 errors.append(
                     f"Case '{case.id}': Status is 'verified' but missing required authoritative provenance and review fields: {', '.join(missing_provenance)}. "
-                    "Factual verification cannot be established by single self-asserted metadata."
+                    "Verified metadata completeness requires all authoritative fields. Genuine evidence authenticity and cryptographic source-byte verification occur during Phase 2 authoritative document review."
                 )
 
         # Invariant: pending_pdf_verification cases must not fabricate verified metadata

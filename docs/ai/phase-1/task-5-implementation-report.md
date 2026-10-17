@@ -575,3 +575,253 @@ Total Adapter Evals     : 160
 - Các chỉ số truy xuất (`retrieval_recall_at_5`, `citation_precision`) và chỉ số ảo giác (`hallucination_rate`) tiếp tục giữ nguyên `NOT_EVALUABLE` do hệ thống chưa tích hợp RAG pipeline và LLM generator.
 - 0 rủi ro P0/P1 tồn đọng trong khung đánh giá tất định.
 
+---
+
+## 22. Task 5.2 — Contract Evaluation Coverage & Final Quality Gates
+
+### 22.1. Bối cảnh và Mục tiêu (Context & Objectives)
+
+Sau kết quả kiểm toán độc lập đối với Task 5.1 (SHA: `d1d6e84b8a504c6e3abe5e4f3b00696e82a94b54`), trạng thái nghiệm thu đạt **PASS WITH CHANGES**. Kiểm toán viên ghi nhận một khoảng trống độ phủ (coverage gap):
+- Lệnh `--mode all` đăng ký 3 bộ điều hợp (`policy_adapter`, `decision_adapter`, `contract_adapter`).
+- Bộ dữ liệu `golden_admission_v1.jsonl` bao gồm 80 kịch bản tuyển sinh thực tế, không có kịch bản nào khớp với `contract_adapter`.
+- Hệ thống CI báo cáo 0 lượt đánh giá khế ước (`contract_adapter: 0 runs`).
+- Các chỉ số `citation_safety_rate` và `response_contract_compliance_rate` bị ghi nhận `NOT_EVALUABLE (0/0)`.
+
+**Mục tiêu của Task 5.2:**
+1. Bảo toàn nguyên vẹn 80 kịch bản và phân bố danh mục của bộ dữ liệu `golden_admission_v1.jsonl`.
+2. Giới thiệu bộ dữ liệu khế ước giả lập độc lập, phân tách minh bạch: `synthetic_contracts_v1.jsonl` (8 kịch bản).
+3. Nâng cấp `ResponseContractEvaluationAdapter` để xử lý từng kịch bản cụ thể với controlled fixtures và kỳ vọng rõ ràng thay vì chạy một ví dụ cố định chung cho mọi trường hợp.
+4. Bổ sung các ca kiểm thử đối chứng tiêu cực (negative controls) chứng minh bất kỳ sai lệch khế ước hay trích dẫn nào đều lập tức kích hoạt `FAIL`.
+5. Đảm bảo toàn bộ suite giả lập được thực thi trên CLI và GitHub Actions CI.
+6. Tuyệt đối không đánh đồng kiểm thử khế ước phần mềm với độ chính xác sự thật tuyển sinh EPU.
+7. Bổ sung kế toán `partial_coverage_scenarios` và làm rõ thuật ngữ thẩm định siêu dữ liệu (metadata completeness) so với kiểm chứng tính xác thực vật lý từ byte tài liệu gốc (Phase 2).
+
+---
+
+### 22.2. Các tệp đã thay đổi (Changed Files)
+
+| STT | Tệp tin | Loại thay đổi | Mô tả tóm tắt |
+| :---: | :--- | :---: | :--- |
+| 1 | `evals/datasets/synthetic_contracts_v1.jsonl` | **Tạo mới** | 8 kịch bản khế ước giả lập độc lập (`synth-contract-01` đến `08`), gán nhãn `category="contract"`, `fixture_type="synthetic"`. |
+| 2 | `evals/harness/models.py` | Sửa đổi | Bổ sung `CaseCategory.CONTRACT = "contract"` và trường kế toán `partial_coverage_scenarios` trong `ScenarioSummary`. |
+| 3 | `evals/harness/validator.py` | Sửa đổi | Bổ sung `APPROVED_CATEGORIES`, các hành vi khế ước mới, kiểm tra định dạng hash SHA-256 (64 hex characters), và cập nhật thuật ngữ thẩm định siêu dữ liệu. |
+| 4 | `evals/harness/adapters/contract_adapter.py` | Sửa đổi | Tái cấu trúc thành bộ điều hợp module hóa theo từng kịch bản (8 kiểm thử khế ước độc lập, hỗ trợ negative controls, fallback an toàn). |
+| 5 | `evals/harness/adapters/policy_adapter.py` | Sửa đổi | Cập nhật `supports_case` bỏ qua các kịch bản `category="contract"` để nhường cho `contract_adapter`. |
+| 6 | `evals/harness/adapters/decision_adapter.py` | Sửa đổi | Cập nhật `supports_case` bỏ qua các kịch bản `category="contract"`. |
+| 7 | `evals/harness/runner.py` | Sửa đổi | Chỉ áp dụng phân bố 80 kịch bản khi kiểm tra `golden_admission_v1`, tính toán và hiển thị trung thực `partial_coverage_scenarios`. |
+| 8 | `evals/harness/report.py` | Sửa đổi | Trình bày `partial_coverage_scenarios` trên bảng tóm tắt và giải trình trung thực trong phần giải trình kiểm toán. |
+| 9 | `.github/workflows/backend-ci.yml` | Sửa đổi | Bổ sung bước chạy kiểm thử khế ước `synthetic_contracts_v1.jsonl` song song với `golden_admission_v1.jsonl`, upload toàn bộ artifacts. |
+| 10 | `evals/harness/tests/test_adapters.py` | Sửa đổi | Bổ sung kiểm thử 8 kịch bản khế ước, negative controls (ép lỗi, forged doc), kiểm tra ranh giới adapter. |
+| 11 | `evals/harness/tests/test_dataset_validation.py` | Sửa đổi | Bổ sung kiểm thử toàn vẹn cho `synthetic_contracts_v1.jsonl` và kiểm tra định dạng mã băm SHA-256. |
+| 12 | `evals/harness/tests/test_runner.py` | Sửa đổi | Bổ sung kiểm thử chạy runner trên synthetic dataset và kiểm chứng chế độ `--strict` trả về exit code 1 khi có lỗi khế ước. |
+
+---
+
+### 22.3. Số lượng Fixtures và Phân tầng Kịch bản (Exact Counts & Tiers)
+
+1. **Bộ dữ liệu Golden V1 (`evals/datasets/golden_admission_v1.jsonl`):**
+   - **Tổng số:** **80 kịch bản** (Bảo toàn 100% nguyên vẹn).
+   - **Phân bố danh mục:**
+     - `major`: 15 kịch bản (Tier B)
+     - `curriculum`: 20 kịch bản (Tier B)
+     - `comparison`: 10 kịch bản (Tier B)
+     - `missing`: 15 kịch bản (Tier A)
+     - `ambiguity`: 10 kịch bản (Tier A)
+     - `safety`: 10 kịch bản (Tier A)
+   - **Phân tầng:** 35 Tier A (Policy-only, 43.8%) + 45 Tier B (Pending PDF Verification, 56.2%) + 0 Tier C.
+
+2. **Bộ dữ liệu Synthetic Contracts V1 (`evals/datasets/synthetic_contracts_v1.jsonl`):**
+   - **Tổng số:** **8 kịch bản** chuyên biệt kiểm thử khế ước.
+   - **Phân bố danh mục:** `contract`: 8 kịch bản (100%).
+   - **Phân tầng:** 0 Tier A + 0 Tier B + 8 Tier C (Synthetic Fixtures, 100%).
+   - **Ground Truth Status:** `synthetic` (Không tính vào dữ liệu sự thật tuyển sinh EPU).
+
+---
+
+### 22.4. Khép góc Kiểm thử Khế ước (8 Invariants Tested)
+
+`ResponseContractEvaluationAdapter` thực thi độc lập 8 thành phần khế ước Task 3 & Task 4:
+
+1. **`synth-contract-01` (`valid_envelope`):**
+   - Kiểm chứng `AIResponseEnvelope` khởi tạo hợp lệ với `answer_status=ANSWERED`, `evidence_status=SUPPORTED`, `source_mode=OFFICIAL_EPU`, mã ngành 7 chữ số (`7480201`), và trích dẫn được xác thực qua `ContractCitationVerifier`.
+   - Kết quả: `PASS` (Citations count: 1).
+2. **`synth-contract-02` (`malformed_envelope`):**
+   - Thử nghiệm các payload lỗi cấu trúc: thiếu trường bắt buộc `answer`, mã ngành không đủ 7 chữ số (`"123"`), độ tin cậy vượt giới hạn (`confidence=1.5`).
+   - Kiểm chứng: Tất cả các trường hợp đều kích hoạt `ValidationError` từ Pydantic v2.
+   - Kết quả: `PASS` (Citations count: 0).
+3. **`synth-contract-03` (`forbidden_fallback_citations`):**
+   - Kiểm chứng bất biến ngữ nghĩa: Phong bì có `answer_status=ERROR`, `HANDOVER_OFFERED`, `INSUFFICIENT_EVIDENCE` hoặc `source_mode=NONE` tuyệt đối KHÔNG được đính kèm trích dẫn.
+   - Thử nghiệm gắn trích dẫn vào các trạng thái trên đều kích hoạt `ValueError` ("cannot emit citations").
+   - Kết quả: `PASS` (Citations count: 0).
+4. **`synth-contract-04` (`unknown_document_id`):**
+   - Thử nghiệm đưa trích dẫn với `document_id="doc-unregistered-adversary"` vào `ContractCitationVerifier`.
+   - Kiểm chứng: Hệ thống lập tức fail-closed với mã lý do `CATALOG_DOCUMENT_NOT_FOUND`, `catalog_verified=False`, `is_valid=False`.
+   - Kết quả: `PASS` (Citations count: 0).
+5. **`synth-contract-05` (`mismatched_document_hash`):**
+   - Thử nghiệm đưa đoạn chứng cứ có mã băm bị sai lệch/sửa đổi (`document_hash="tampered_hash_..."`) so với mã băm trong danh mục phê duyệt.
+   - Kiểm chứng: `ContractCitationVerifier` lập tức từ chối với mã lý do `CATALOG_METADATA_MISMATCH`.
+   - Kết quả: `PASS` (Citations count: 0).
+6. **`synth-contract-06` (`invalid_source_tier`):**
+   - Thử nghiệm trích dẫn có `source_tier=SourceTier.GENERAL` (không phải `official_epu`) hoặc tài liệu trong catalog bị đánh dấu `is_active=False`.
+   - Kiểm chứng: Bị từ chối tương ứng với `UNOFFICIAL_SOURCE_TIER` và `CATALOG_DOCUMENT_INACTIVE`.
+   - Kết quả: `PASS` (Citations count: 0).
+7. **`synth-contract-07` (`legacy_response_mapping`):**
+   - Kiểm chứng hàm chuyển đổi tương thích ngược `to_legacy_chat_response(envelope)`.
+   - Bất biến: Trả về đối tượng `ChatResponse` hợp lệ, giữ nguyên nội dung `answer`, độ tin cậy chưa thẩm định (`confidence=None`) được ánh xạ về `0.0` thay vì bịa đặt `1.0`.
+   - Kết quả: `PASS` (Citations count: 1).
+8. **`synth-contract-08` (`handover_no_auto_ticket`):**
+   - Kiểm chứng khế ước `HandoverInfo`: Lời mời chuyển giao nhân viên (`offered=True`) có `ticket_id is None`.
+   - Thử nghiệm gán `ticket_id` khi ứng viên chưa yêu cầu (`requested=False`) hoặc chưa có sự đồng ý xác thực từ máy chủ (`consent_verified=False`) đều ném ngoại lệ `ValueError`.
+   - Kết quả: `PASS` (Ticket created: False).
+
+---
+
+### 22.5. Kết quả Kiểm thử Đối chứng Tiêu cực (Negative Control Results)
+
+1. **Ép lỗi kiểm thử khế ước (`test_contract_adapter_negative_control_forced_fail`):**
+   - Gắn `controlled_context={"expected_outcome": "FAIL"}` vào kịch bản khế ước.
+   - `ResponseContractEvaluationAdapter` phát hiện sự bất thường và trả về kết quả `EvaluationResultStatus.FAIL`.
+2. **Kiểm chứng chế độ nghiêm ngặt CLI (`test_runner_strict_mode_fails_on_contract_failure`):**
+   - Chạy `run_evaluation(strict=True)` trên bộ dữ liệu chứa kịch bản khế ước lỗi.
+   - Kết quả: Runner trả về `exit_code = 1` một cách tất định, ngăn chặn hoàn toàn việc build/CI thành công khi có hồi quy khế ước.
+3. **Từ chối tài liệu giả mạo & sai băm:**
+   - Đảm bảo nếu `ContractCitationVerifier` chấp nhận mã văn bản lạ hoặc mã băm không khớp, bài kiểm thử sẽ lập tức đánh `FAIL`.
+4. **Kiểm tra định dạng mã băm SHA-256 (`test_sha256_hash_format_validation`):**
+   - Chuỗi không đúng 64 ký tự hex (hoặc thiếu prefix hợp lệ) bị `validator.py` từ chối ngay ở bước tiền thẩm định dataset.
+
+---
+
+### 22.6. Lệnh CLI và Đầu ra Đo lường Thực tế (CLI Commands & Actual Outputs)
+
+#### Lệnh 1: Đánh giá Bộ dữ liệu Golden V1 Tuyển sinh
+```bash
+python -m evals.harness.runner --dataset evals/datasets/golden_admission_v1.jsonl --mode all --strict --output evals/reports/task-5
+```
+
+```text
+[*] Validating dataset integrity: evals/datasets/golden_admission_v1.jsonl
+[+] Dataset integrity OK: 80 cases verified.
+[*] Running deterministic evaluation (mode=all, category=all)...
+
+============================================================
+           ADMISSION X AI — EVALUATION SUMMARY
+============================================================
+Dataset Version         : golden_admission_v1
+Total Scenarios         : 80
+Passed Scenarios        : 35
+Failed Scenarios        : 0
+NOT_EVALUABLE Scenarios : 45 (pending verified PDF)
+Unsupported Scenarios   : 0
+Total Adapter Evals     : 160
+
+[Per-Adapter Breakdown]
+  - policy_adapter      : 80 runs [PASS=35, FAIL=0, NOT_EVALUABLE=45, ERROR=0]
+  - decision_adapter    : 80 runs [PASS=35, FAIL=0, NOT_EVALUABLE=45, ERROR=0]
+  - contract_adapter    : 0 runs [PASS=0, FAIL=0, NOT_EVALUABLE=0, ERROR=0]
+
+[Metrics Summary]
+  - behavior_compliance_rate          : 100.0% (70/70)    [PASS]
+  - policy_compliance_rate            : 100.0% (35/35)    [PASS]
+  - safe_abstention_rate              : 100.0% (30/30)    [PASS]
+  - citation_safety_rate              : N/A    (0/0)      [NOT_EVALUABLE]
+  - handover_safety_rate              : 100.0% (19/19)    [PASS]
+  - response_contract_compliance_rate : N/A    (0/0)      [NOT_EVALUABLE]
+  - missing_facts_safety_rate         : 100.0% (30/30)    [PASS]
+  - retrieval_recall_at_5             : N/A               [NOT_EVALUABLE]
+  - factual_answer_correctness        : N/A               [NOT_EVALUABLE]
+  - citation_precision                : N/A               [NOT_EVALUABLE]
+  - groundedness_score                : N/A               [NOT_EVALUABLE]
+  - hallucination_rate                : N/A               [NOT_EVALUABLE]
+============================================================
+[+] Reports exported to evals/reports/task-5/ (report.json, report.md)
+[+] Evaluation completed successfully.
+```
+
+#### Lệnh 2: Đánh giá Bộ dữ liệu Khế ước Giả lập
+```bash
+python -m evals.harness.runner --dataset evals/datasets/synthetic_contracts_v1.jsonl --mode contract --strict --output evals/reports/contracts
+```
+
+```text
+[*] Validating dataset integrity: evals/datasets/synthetic_contracts_v1.jsonl
+[+] Dataset integrity OK: 8 cases verified.
+[*] Running deterministic evaluation (mode=contract, category=all)...
+
+============================================================
+           ADMISSION X AI — EVALUATION SUMMARY
+============================================================
+Dataset Version         : synthetic_contracts_v1
+Total Scenarios         : 8
+Passed Scenarios        : 8
+Failed Scenarios        : 0
+NOT_EVALUABLE Scenarios : 0 (pending verified PDF)
+Unsupported Scenarios   : 0
+Total Adapter Evals     : 8
+
+[Per-Adapter Breakdown]
+  - contract_adapter    : 8 runs [PASS=8, FAIL=0, NOT_EVALUABLE=0, ERROR=0]
+
+[Metrics Summary]
+  - behavior_compliance_rate          : N/A    (0/0)      [NOT_EVALUABLE]
+  - policy_compliance_rate            : N/A    (0/0)      [NOT_EVALUABLE]
+  - safe_abstention_rate              : N/A    (0/0)      [NOT_EVALUABLE]
+  - citation_safety_rate              : 100.0% (8/8)      [PASS]
+  - handover_safety_rate              : N/A    (0/0)      [NOT_EVALUABLE]
+  - response_contract_compliance_rate : 100.0% (8/8)      [PASS]
+  - missing_facts_safety_rate         : N/A    (0/0)      [NOT_EVALUABLE]
+  - retrieval_recall_at_5             : N/A               [NOT_EVALUABLE]
+  - factual_answer_correctness        : N/A               [NOT_EVALUABLE]
+  - citation_precision                : N/A               [NOT_EVALUABLE]
+  - groundedness_score                : N/A               [NOT_EVALUABLE]
+  - hallucination_rate                : N/A               [NOT_EVALUABLE]
+============================================================
+[+] Reports exported to evals/reports/contracts/ (report.json, report.md)
+[+] Evaluation completed successfully.
+```
+
+---
+
+### 22.7. Làm rõ Kế toán Độ phủ Kịch bản & Thuật ngữ Chứng cứ (Scenario Coverage & Terminology)
+
+1. **Kế toán `partial_coverage_scenarios`:**
+   - Một kịch bản được phân loại là `partial_coverage` khi đạt kết quả `PASS` ở một hoặc nhiều chiều đánh giá (ví dụ: đã kiểm chứng chính sách bảo vệ hoặc khế ước dữ liệu), nhưng ở một chiều khác lại đang ở trạng thái `NOT_EVALUABLE` (ví dụ: chiều dữ liệu sự thật tuyển sinh đang chờ văn bản PDF).
+   - Hệ thống công khai thông tin này trên cả giao diện dòng lệnh, báo cáo JSON và báo cáo Markdown.
+   - **Cam kết:** Tuyệt đối không đánh đồng việc vượt qua bài kiểm thử chính sách/khế ước bằng fixture giả lập với độ chính xác factual end-to-end của chatbot.
+2. **Thuật ngữ thẩm định siêu dữ liệu (Metadata Completeness vs Real Evidence Authenticity):**
+   - Trong `validator.py` và các tài liệu liên quan, hệ thống phân biệt rành mạch:
+     - *Tính đầy đủ của siêu dữ liệu (Metadata Completeness):* Kiểm tra sự hiện diện và định dạng hợp lệ của các trường `source_document_id`, `source_hash`, `verified_passage_id`, `reviewer_reference`.
+     - *Tính xác thực mật mã từ byte nguồn gốc (Cryptographic Source-Byte Verification):* Chỉ được tuyên bố khi hệ thống đã tải và kiểm tra byte thực tế từ tệp PDF gốc của trường Đại học Điện lực (tiến hành tại Phase 2).
+
+---
+
+### 22.8. Kết quả Toàn bộ Kiểm thử Tự động (Full Test Suite Results)
+
+- **Backend & Evaluation Pytest:** **232 passed in 8.26s** (tăng thêm 7 tests mới kiểm tra khế ước và negative controls, 0 failed).
+- **Ruff Linter & Formatter:** **All checks passed!** (0 errors, tuân thủ nghiêm ngặt PEP 8 / Ruff formatting).
+- **Frontend Jest/Node Tests:** **29 passed in 264ms** (0 regressions trên ranh giới bảo mật URL và trích dẫn).
+- **GitHub Actions CI Configuration:**
+  - Tệp `.github/workflows/backend-ci.yml` đã được cập nhật để thực thi tuần tự cả 2 bộ kiểm thử:
+    1. Bộ kịch bản Golden V1 tuyển sinh (`golden_admission_v1.jsonl`, output: `evals/reports/ci/golden`).
+    2. Bộ khế ước giả lập (`synthetic_contracts_v1.jsonl`, output: `evals/reports/ci/contracts`).
+  - Toàn bộ thư mục báo cáo `evals/reports/ci/` được tải lên artifact `task-5-evaluation-reports`.
+- **Exit Code:** `0` (Success).
+
+---
+
+### 22.9. Giới hạn Còn lại Trung thực (Honest Remaining Limitations)
+
+1. **Dữ liệu Sự thật Tuyển sinh 2025/2026:**
+   - 45 kịch bản tuyển sinh tra cứu thực tế (Tier B) tiếp tục được giữ nguyên trạng thái `NOT_EVALUABLE`. Việc thẩm định và gắn nhãn sẽ được thực hiện tại Phase 2 khi tài liệu đề án tuyển sinh chính thức được số hóa và ký duyệt.
+2. **Khế ước giả lập độc lập:**
+   - Bộ 8 kịch bản `synthetic_contracts_v1.jsonl` đóng vai trò là chốt chặn kỹ thuật (quality gate) cho tầng phần mềm (envelope schema, citation verifier, legacy mapping). Kết quả 100% của bộ này xác nhận tính toàn vẹn của mã nguồn, không đại diện cho kiến thức tuyển sinh thực tế của mô hình ngôn ngữ.
+3. **Các chỉ số nâng cao:**
+   - `retrieval_recall_at_5`, `factual_answer_correctness`, `citation_precision`, `groundedness_score`, `hallucination_rate` tiếp tục báo cáo trung thực `NOT_EVALUABLE` cho đến các Phase tiếp theo.
+
+---
+
+### 22.10. Trạng thái Nghiệm thu & Cam kết Giới hạn
+
+- **Commit:** Nhánh `feat/phase-1-task-5-golden-evaluation` (Sẵn sàng cho kiểm toán độc lập)
+- **Trạng thái:** Hoàn thành toàn diện Task 5.2. Đã đóng toàn bộ khoảng trống kiểm thử khế ước.
+- **Quy tắc Phase 1:** Dừng lại tại đây, không merge vào nhánh `main`, không bắt đầu Phase 2. Sẵn sàng cho đợt kiểm toán độc lập tiếp theo.
+

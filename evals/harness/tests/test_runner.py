@@ -147,3 +147,57 @@ def test_runner_invalid_dataset_path(tmp_path: Path) -> None:
             category="all",
             output_dir=str(tmp_path),
         )
+
+
+def test_runner_synthetic_contracts_suite(tmp_path: Path) -> None:
+    """Task 5.2 P1: Verify runner executes synthetic_contracts_v1 suite in contract and all modes."""
+    synth_path = "evals/datasets/synthetic_contracts_v1.jsonl"
+    exit_code, suite = run_evaluation(
+        dataset_path=synth_path,
+        mode="contract",
+        output_dir=str(tmp_path / "contracts"),
+        strict=True,
+    )
+
+    assert exit_code == 0
+    assert suite.total_scenarios == 8
+    assert suite.scenario_summary.passed_scenarios == 8
+    assert suite.scenario_summary.failed_scenarios == 0
+    assert suite.scenario_summary.error_scenarios == 0
+    assert suite.total_adapter_evaluations == 8
+    assert suite.adapter_breakdown["contract_adapter"].passed == 8
+
+    # Verify key metrics are evaluated and PASS
+    assert suite.metrics["response_contract_compliance_rate"].value == 1.0
+    assert suite.metrics["response_contract_compliance_rate"].numerator == 8
+    assert suite.metrics["response_contract_compliance_rate"].denominator == 8
+
+    assert suite.metrics["citation_safety_rate"].value == 1.0
+    assert suite.metrics["citation_safety_rate"].numerator == 8
+    assert suite.metrics["citation_safety_rate"].denominator == 8
+
+
+def test_runner_strict_mode_fails_on_contract_failure(tmp_path: Path) -> None:
+    """Task 5.2 P1 & Regression: Intentionally failing contract fixture produces non-zero CLI exit code."""
+    failing_file = tmp_path / "failing_contract.jsonl"
+    failing_file.write_text(
+        json.dumps({
+            "id": "synth-contract-01",
+            "category": "contract",
+            "scenario_type": "valid_envelope",
+            "question": "Forced failing contract test",
+            "expected_behavior": "validate_response_envelope",
+            "fixture_type": "synthetic",
+            "controlled_context": {"expected_outcome": "FAIL"},
+        }) + "\n",
+        encoding="utf-8",
+    )
+
+    exit_code, suite = run_evaluation(
+        dataset_path=str(failing_file),
+        mode="contract",
+        strict=True,
+    )
+
+    assert exit_code == 1, "Runner with strict=True must return exit code 1 on contract failure"
+    assert suite.scenario_summary.failed_scenarios == 1
