@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node --test --experimental-strip-types tests/chatClient.test.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",

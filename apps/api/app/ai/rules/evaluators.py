@@ -45,7 +45,10 @@ def evaluate_rb01_official_evidence(context: PolicyEvaluationContext) -> RuleEva
     from claim-level verification (claim_verification_status). Nonempty evidence
     does not alone prove grounding.
     """
-    is_epu_claim = context.source_mode == "official_epu" or context.intent in (
+    is_epu_claim = (
+        context.source_mode == "official_epu"
+        and context.intent != "counselor_request"
+    ) or context.intent in (
         "curriculum",
         "program_query",
         "admission_policy",
@@ -121,7 +124,7 @@ def evaluate_rb02_program_resolution(context: PolicyEvaluationContext) -> RuleEv
     from when it is applicable but unresolved.
     """
     is_program_applicable = (
-        context.source_mode == "official_epu"
+        (context.source_mode == "official_epu" and context.intent != "counselor_request")
         or context.intent in ("curriculum", "program_query")
         or context.resolved_major_codes is not None
         or context.program_resolver_status is not None
@@ -577,7 +580,7 @@ def evaluate_rb11_prompt_injection(context: PolicyEvaluationContext) -> RuleEval
 
 def evaluate_rb12_handover_policy(context: PolicyEvaluationContext) -> RuleEvaluationResult:
     """RB-12: Distinguish abstain from optional handover; require confirmation before tickets."""
-    if context.handover_requested:
+    if context.handover_requested or context.intent == "counselor_request":
         if context.handover_consent_verified:
             return RuleEvaluationResult(
                 rule_id="RB-12",
