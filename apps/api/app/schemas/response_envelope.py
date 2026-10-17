@@ -288,10 +288,16 @@ def to_legacy_chat_response(envelope: AIResponseEnvelope) -> ChatResponse:
     """Safe compatibility adapter mapping AIResponseEnvelope to legacy ChatResponse.
 
     Preserves exact backward compatibility with apps/api/app/schemas/chat.py.
-    SAFETY RULES:
-    1. Never manufacture citation sources or URLs (no 'Trang N' or title placeholders).
-    2. Omit citations without an authentic, verified source_url from the legacy contract.
-    3. Do not default confidence to 1.0; unassessed confidence maps to 0.0 to prevent misleading certainty.
+
+    TRUST & PROVENANCE BOUNDARY:
+    1. This adapter is a projection layer for already-validated AIResponseEnvelopes.
+    2. The presence of a nonempty 'source_url' does NOT independently confer verification
+       or source approval; citations emitted in AIResponseEnvelope must have already been
+       audited and verified through ContractCitationVerifier and upstream pipelines.
+    3. Citations without an authentic, verified source_url are omitted from legacy output
+       rather than fabricating placeholder URLs or surrogate strings (e.g. 'Trang N').
+    4. If envelope.confidence is unassessed (None), it maps to 0.0 rather than 1.0 to
+       prevent falsely signaling high certainty to legacy clients.
     """
     from app.schemas.chat import ChatResponse, Citation
 

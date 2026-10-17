@@ -275,3 +275,87 @@ Tuân thủ nghiêm ngặt phạm vi **Contract-First** của Task 3, các hạn
 - **Tình trạng:** Sẵn sàng review Task 3.1. Dừng sau Task 3.1, không merge vào main, không bắt đầu Task 4.
 
 
+---
+
+## 12. Task 3.2 — Trusted Catalog Verification Hardening
+
+**Nhánh:** `feat/phase-1-task-3-response-tool-contracts`  
+**Commit cơ sở được review:** `53ff5d7dada6db6378f333f128a1ea20ca2b4d3c`  
+**Kết quả Review:** PASS WITH CHANGES (1 vấn đề P1 trust-boundary còn lại)
+
+### 12.1. Vấn đề Phát hiện & Phân tích Rủi ro
+Trong quá trình rà soát commit `53ff5d7dada6db6378f333f128a1ea20ca2b4d3c`, phát hiện lỗ hổng an toàn tại ranh giới tin cậy (trust boundary) trong bộ xác thực trích dẫn:
+1. **Tự động điền dữ liệu thiếu từ nguồn không tin cậy:** `ContractCitationVerifier` sử dụng `entry_data.setdefault("document_id", citation.document_id)` và `entry_data.setdefault("title", citation.title)` để bổ sung thông tin thiếu cho catalog. Điều này cho phép trích dẫn do người dùng hoặc LLM kiểm soát tự "hợp thức hóa" cho một bản ghi danh mục rỗng.
+2. **Giá trị mặc định quá dễ dãi:** Model `TrustedDocumentEntry` đặt mặc định `is_active=True` và `source_tier=SourceTier.OFFICIAL_EPU`. Kết hợp với việc auto-populate, một entry danh mục dạng `{}` hoặc chỉ có `{"title": "..."}` sẽ mặc nhiên được hệ thống coi là tài liệu tuyển sinh chính thức đang có hiệu lực.
+3. **Bỏ sót kiểm tra mã băm tài liệu:** Khi danh mục yêu cầu mã băm mật mã (`document_hash is not None`), nhưng bằng chứng (`evidence`) lại không có mã băm (`document_hash is None`), bộ xác thực trước đây bỏ qua bước kiểm tra thay vì từ chối.
+4. **Không kiểm tra tính nhất quán giữa key và value của Catalog:** Không đối chiếu khóa của dictionary trong catalog với trường `document_id` bên trong bản ghi `TrustedDocumentEntry`.
+
+### 12.2. Các giải pháp đã triển khai (Required Fixes)
+
+1. **Tuyệt đối không sử dụng dữ liệu từ Citation để điền Catalog:**
+   - Loại bỏ hoàn toàn các lệnh `setdefault` từ dữ liệu trích dẫn (`citation.document_id`, `citation.title`).
+   - Catalog phải hoàn toàn độc lập và xuất phát từ nguồn có thẩm quyền (Authoritative Backend-Controlled Catalog).
+2. **Bắt buộc cung cấp tường minh các trường định danh và phê duyệt:**
+   - Cập nhật model `TrustedDocumentEntry`: các trường `document_id`, `title`, `source_tier`, và `is_active` đều được đặt là `Field(...)` bắt buộc, loại bỏ triệt để các default giá trị dễ dãi.
+   - Các trường tùy chọn có chủ đích (`document_hash: str | None = None`, `allowed_major_codes: list[str] | None = None`) được giữ lại và ghi chú rõ ràng tài liệu mục đích kiểm định.
+3. **Từ chối ngay các bản ghi Catalog không hoàn chỉnh:**
+   - Bất kỳ entry nào dưới dạng dict thiếu một trong các trường bắt buộc (`document_id`, `title`, `source_tier`, `is_active`) sẽ bị Pydantic `ValidationError` bắt giữ và chuyển đổi thành lỗi `CATALOG_METADATA_MISMATCH` với thông báo rõ ràng "incomplete or invalid catalog entry".
+4. **Xác thực khóa Dictionary so với `document_id`:**
+   - Khi catalog được truyền dưới dạng dict, bộ xác thực kiểm tra: `if catalog_key != entry_data["document_id"]`, ngay lập tức từ chối với lý do "Catalog key ... mismatches entry document_id ...".
+5. **Thắt chặt xác thực Cryptographic Hash:**
+   - Nếu `catalog_entry.document_hash is not None`, bộ xác thực bắt buộc `evidence.document_hash` phải khác rỗng và phải khớp tuyệt đối (`evidence.document_hash == catalog_entry.document_hash`). Nếu `evidence.document_hash` bị thiếu hoặc `None`, trích dẫn bị từ chối ngay với lý do "evidence document_hash is missing".
+6. **Bảo toàn trạng thái `catalog_verified` & `claim_grounding_status`:**
+   - `catalog_verified` chỉ được đặt thành `True` khi toàn bộ các kiểm tra danh mục thẩm quyền hoàn tất thành công.
+   - `claim_grounding_status` giữ nguyên tuyệt đối ở mức `VerificationStatus.PENDING` (không giả lập đánh giá ngữ nghĩa claim-level của Phase 6).
+7. **Ranh giới tin cậy và kiểm chứng nguồn gốc (Trust Boundary & Provenance):**
+   - Đã bổ sung tài liệu kiến trúc bảo mật chi tiết trong docstring của `ContractCitationVerifier`: Backend gọi xác thực, chứ không phải người dùng hay LLM, chịu trách nhiệm quản lý danh mục tài liệu tin cậy.
+   - Docstring của adapter `to_legacy_chat_response` trong `apps/api/app/schemas/response_envelope.py` được bổ sung làm rõ: việc có một `source_url` không rỗng không tự động chứng minh URL đó là nguồn tin cậy; tính xác thực bắt buộc phải xuất phát từ quá trình kiểm tra danh mục có thẩm quyền.
+
+### 12.3. Danh sách tệp tin thay đổi
+- `apps/api/app/ai/rag/citations/verifier.py`:
+  - Yêu cầu tường minh `source_tier: SourceTier` và `is_active: bool` trong `TrustedDocumentEntry`.
+  - Bổ sung xác thực khóa catalog so với `document_id`.
+  - Loại bỏ hoàn toàn auto-populate từ citation fields.
+  - Thắt chặt so khớp document hash (từ chối khi thiếu hash bằng chứng).
+  - Bổ sung tài liệu bảo mật ranh giới tin cậy (Security Trust Boundary).
+- `apps/api/app/schemas/response_envelope.py`:
+  - Cập nhật docstring của `to_legacy_chat_response` nhấn mạnh ranh giới provenance và ngăn chặn việc coi URL bất kỳ là nguồn đã xác minh.
+- `apps/api/tests/test_citation_verifier.py`:
+  - Cập nhật 5 test fixtures hiện có để cung cấp tường minh `source_tier` và `is_active`.
+  - Bổ sung 6 test cases mới kiểm thử toàn diện các trường hợp hồi quy và ranh giới bảo mật.
+- `docs/ai/phase-1/task-3-implementation-report.md`:
+  - Thêm mục 12 ghi nhận chi tiết triển khai Task 3.2.
+
+### 12.4. Danh mục Test Cases Hồi quy (Regression Tests)
+Đã triển khai và vượt qua tất cả các ca kiểm thử hồi quy được yêu cầu:
+1. `test_verifier_catalog_entry_empty_dict_rejected`: Bản ghi catalog `{}` bị từ chối.
+2. `test_verifier_catalog_entry_only_title_rejected`: Bản ghi catalog chỉ có `title` bị từ chối.
+3. `test_verifier_catalog_entry_missing_active_status_rejected`: Thiếu trạng thái `is_active` tường minh bị từ chối.
+4. `test_verifier_catalog_key_and_document_id_mismatch_rejected`: Lệch giữa khóa catalog và `document_id` bị từ chối.
+5. `test_verifier_missing_evidence_hash_when_catalog_requires_hash`: Thiếu hash bằng chứng khi catalog yêu cầu hash bị từ chối.
+6. `test_verifier_success_contract`: Bản ghi catalog thẩm quyền hợp lệ với bằng chứng tương ứng vượt qua xác thực cấu trúc và danh mục.
+7. `test_untrusted_metadata_cannot_become_verified_evidence`: Dữ liệu không đáng tin cậy do người dùng/client cung cấp không thể phê duyệt tài liệu tự tạo.
+8. `test_claim_level_grounding_remains_pending_after_catalog_verification`: Khẳng định `claim_grounding_status` vẫn là `PENDING` sau khi xác thực catalog thành công.
+
+### 12.5. Kết quả Kiểm thử & Linter
+- **Pytest:**
+  ```text
+  python -m pytest apps/api/tests evals/harness/tests
+  ============================= 137 passed in 7.64s =============================
+  ```
+  *(100% 137 tests đạt yêu cầu, không có bất kỳ test nào thất bại hay cảnh báo thoái lui).*
+- **Ruff Check:**
+  ```text
+  python -m ruff check apps/api
+  All checks passed!
+  ```
+
+### 12.6. Hạn chế còn lại (Remaining Limitations)
+- **Claim Grounding Semantic Evaluation:** Khế ước chỉ bảo đảm tính hợp lệ về mặt cấu trúc, trích xuất và danh mục tài liệu có thẩm quyền (`catalog_verified=True`). Việc đối soát ngữ nghĩa giữa câu trả lời sinh ra bởi mô hình và đoạn trích dẫn (NLI / Hallucination Detection) sẽ được triển khai đầy đủ trong **Phase 6**.
+- **Catalog Management Lifecycle:** Hiện tại danh mục tài liệu tin cậy được truyền vào verifier từ backend; quy trình quản lý vòng đời tài liệu (tải lên, băm SHA-256, phê duyệt và kích hoạt qua giao diện quản trị) sẽ được kết nối ở các Phase tiếp theo.
+
+### 12.7. Thông tin Commit
+- **Nhánh:** `feat/phase-1-task-3-response-tool-contracts`
+- **Commit SHA:** `53eb835` (`53eb8351e695bc4fa5843253193602479b857044`)
+- **Thông điệp Commit:** `fix(ai): enforce authoritative trusted catalog metadata`
+- **Quy tắc tuân thủ:** Không merge vào `main`. Dừng lại sau khi hoàn thành Task 3.2. Không bắt đầu Task 4.

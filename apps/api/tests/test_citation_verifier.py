@@ -55,6 +55,7 @@ def test_verifier_success_contract():
                 document_id="doc-epu-dean-2025",
                 title="Đề án Tuyển sinh EPU 2025",
                 source_tier=SourceTier.OFFICIAL_EPU,
+                is_active=True,
                 document_hash="hash-epu-dean-2025-sha256",
                 allowed_major_codes=["7480201"],
             )
@@ -223,6 +224,7 @@ def test_verifier_catalog_inactive_document_rejected():
         "doc-epu-dean-2025": TrustedDocumentEntry(
             document_id="doc-epu-dean-2025",
             title="Đề án 2025",
+            source_tier=SourceTier.OFFICIAL_EPU,
             is_active=False,
         )
     }
@@ -251,6 +253,7 @@ def test_verifier_catalog_source_tier_mismatch_rejected():
             document_id="doc-epu-dean-2025",
             title="Đề án 2025",
             source_tier=SourceTier.RESTRICTED,
+            is_active=True,
         )
     }
     verifier = ContractCitationVerifier(trusted_catalog=mismatched_catalog)
@@ -277,6 +280,8 @@ def test_verifier_catalog_hash_mismatch_rejected():
         "doc-epu-dean-2025": TrustedDocumentEntry(
             document_id="doc-epu-dean-2025",
             title="Đề án 2025",
+            source_tier=SourceTier.OFFICIAL_EPU,
+            is_active=True,
             document_hash="tampered-hash-value",
         )
     }
@@ -304,6 +309,8 @@ def test_verifier_catalog_major_code_unauthorized_rejected():
         "doc-epu-dean-2025": TrustedDocumentEntry(
             document_id="doc-epu-dean-2025",
             title="Đề án 2025",
+            source_tier=SourceTier.OFFICIAL_EPU,
+            is_active=True,
             allowed_major_codes=["7510301", "7520216"],  # Does NOT include 7480201
         )
     }
@@ -335,7 +342,14 @@ def test_verifier_batch_operations_with_catalog():
     )
 
     verifier = ContractCitationVerifier(
-        trusted_catalog={"doc-epu-dean-2025": {"title": "Đề án 2025"}}
+        trusted_catalog={
+            "doc-epu-dean-2025": TrustedDocumentEntry(
+                document_id="doc-epu-dean-2025",
+                title="Đề án 2025",
+                source_tier=SourceTier.OFFICIAL_EPU,
+                is_active=True,
+            )
+        }
     )
     batch_report = verifier.verify_batch(
         citations=[valid_cite, invalid_cite],
@@ -371,6 +385,134 @@ def test_batch_verification_without_catalog_does_not_approve_citations():
     assert "CATALOG_NOT_EVALUABLE" in batch_report.unverified_reasons[0]
 
 
+def test_verifier_catalog_entry_empty_dict_rejected():
+    """Catalog entry {} lacks required fields and must be rejected."""
+    evidence = _make_verified_evidence()
+    citation = CitationRecord(
+        citation_id="cite-empty-cat",
+        evidence_id="ev-chunk-101",
+        document_id="doc-epu-dean-2025",
+        title="Đề án 2025",
+    )
+    verifier = ContractCitationVerifier(trusted_catalog={"doc-epu-dean-2025": {}})
+    res = verifier.verify_citation(citation, evidence=evidence)
+
+    assert res.is_valid is False
+    assert res.reason_code == CitationVerificationReason.CATALOG_METADATA_MISMATCH
+    assert "incomplete or invalid" in res.message
+
+
+def test_verifier_catalog_entry_only_title_rejected():
+    """Catalog entry with only title lacks document_id, source_tier, and is_active; must be rejected."""
+    evidence = _make_verified_evidence()
+    citation = CitationRecord(
+        citation_id="cite-title-only",
+        evidence_id="ev-chunk-101",
+        document_id="doc-epu-dean-2025",
+        title="Đề án 2025",
+    )
+    verifier = ContractCitationVerifier(
+        trusted_catalog={"doc-epu-dean-2025": {"title": "Đề án 2025"}}
+    )
+    res = verifier.verify_citation(citation, evidence=evidence)
+
+    assert res.is_valid is False
+    assert res.reason_code == CitationVerificationReason.CATALOG_METADATA_MISMATCH
+    assert "incomplete or invalid" in res.message
+
+
+def test_verifier_catalog_entry_missing_active_status_rejected():
+    """Catalog entry missing explicit is_active status is rejected without permissive defaults."""
+    evidence = _make_verified_evidence()
+    citation = CitationRecord(
+        citation_id="cite-missing-active",
+        evidence_id="ev-chunk-101",
+        document_id="doc-epu-dean-2025",
+        title="Đề án 2025",
+    )
+    verifier = ContractCitationVerifier(
+        trusted_catalog={
+            "doc-epu-dean-2025": {
+                "document_id": "doc-epu-dean-2025",
+                "title": "Đề án 2025",
+                "source_tier": SourceTier.OFFICIAL_EPU,
+                # is_active is missing
+            }
+        }
+    )
+    res = verifier.verify_citation(citation, evidence=evidence)
+
+    assert res.is_valid is False
+    assert res.reason_code == CitationVerificationReason.CATALOG_METADATA_MISMATCH
+    assert "incomplete or invalid" in res.message
+
+
+def test_verifier_catalog_key_and_document_id_mismatch_rejected():
+    """Catalog dict key mismatches entry document_id; must be rejected."""
+    evidence = _make_verified_evidence()
+    citation = CitationRecord(
+        citation_id="cite-key-mismatch",
+        evidence_id="ev-chunk-101",
+        document_id="doc-epu-dean-2025",
+        title="Đề án 2025",
+    )
+    # Key is 'doc-epu-dean-2025', but entry document_id is 'doc-other-99'
+    verifier = ContractCitationVerifier(
+        trusted_catalog={
+            "doc-epu-dean-2025": {
+                "document_id": "doc-other-99",
+                "title": "Đề án 2025",
+                "source_tier": SourceTier.OFFICIAL_EPU,
+                "is_active": True,
+            }
+        }
+    )
+    res = verifier.verify_citation(citation, evidence=evidence)
+
+    assert res.is_valid is False
+    assert res.reason_code == CitationVerificationReason.CATALOG_METADATA_MISMATCH
+    assert "mismatches entry document_id" in res.message
+
+
+def test_verifier_missing_evidence_hash_when_catalog_requires_hash():
+    """When catalog entry requires document_hash, evidence missing document_hash must be rejected."""
+    evidence_no_hash = EvidenceRecord(
+        evidence_id="ev-no-hash",
+        document_id="doc-epu-dean-2025",
+        major_code="7480201",
+        chunk_id="chunk-01",
+        content_excerpt="Nội dung...",
+        document_title="Đề án 2025",
+        document_hash=None,  # Missing hash
+        source_tier=SourceTier.OFFICIAL_EPU,
+        verification_status=VerificationStatus.VERIFIED,
+    )
+    citation = CitationRecord(
+        citation_id="cite-no-hash",
+        evidence_id="ev-no-hash",
+        document_id="doc-epu-dean-2025",
+        major_code="7480201",
+        title="Đề án 2025",
+    )
+    # Catalog requires hash
+    verifier = ContractCitationVerifier(
+        trusted_catalog={
+            "doc-epu-dean-2025": TrustedDocumentEntry(
+                document_id="doc-epu-dean-2025",
+                title="Đề án 2025",
+                source_tier=SourceTier.OFFICIAL_EPU,
+                is_active=True,
+                document_hash="required-sha256-hash-value",
+            )
+        }
+    )
+    res = verifier.verify_citation(citation, evidence=evidence_no_hash)
+
+    assert res.is_valid is False
+    assert res.reason_code == CitationVerificationReason.CATALOG_METADATA_MISMATCH
+    assert "evidence document_hash is missing" in res.message
+
+
 def test_untrusted_metadata_cannot_become_verified_evidence():
     """Client-controlled or unverified metadata cannot spoof verification.
 
@@ -399,7 +541,14 @@ def test_untrusted_metadata_cannot_become_verified_evidence():
 
     # 1. Without trusted catalog entry, document is rejected
     verifier_with_catalog = ContractCitationVerifier(
-        trusted_catalog={"doc-official-001": {"title": "Official Catalog Only"}}
+        trusted_catalog={
+            "doc-official-001": TrustedDocumentEntry(
+                document_id="doc-official-001",
+                title="Official Catalog Only",
+                source_tier=SourceTier.OFFICIAL_EPU,
+                is_active=True,
+            )
+        }
     )
     result = verifier_with_catalog.verify_citation(spoofed_citation, evidence=spoofed_evidence)
     assert result.is_valid is False
@@ -413,3 +562,36 @@ def test_untrusted_metadata_cannot_become_verified_evidence():
     assert res2.reason_code == CitationVerificationReason.CATALOG_NOT_EVALUABLE
     assert res2.claim_grounding_status != VerificationStatus.VERIFIED
     assert res2.claim_grounding_status == VerificationStatus.NOT_EVALUABLE
+
+
+def test_claim_level_grounding_remains_pending_after_catalog_verification():
+    """Even after structural and catalog verification both succeed, claim grounding remains strictly PENDING."""
+    evidence = _make_verified_evidence()
+    citation = CitationRecord(
+        citation_id="cite-grounding-check",
+        evidence_id="ev-chunk-101",
+        document_id="doc-epu-dean-2025",
+        title="Đề án Tuyển sinh EPU 2025",
+        major_code="7480201",
+        page_start=11,
+        page_end=14,
+    )
+    verifier = ContractCitationVerifier(
+        trusted_catalog={
+            "doc-epu-dean-2025": TrustedDocumentEntry(
+                document_id="doc-epu-dean-2025",
+                title="Đề án Tuyển sinh EPU 2025",
+                source_tier=SourceTier.OFFICIAL_EPU,
+                is_active=True,
+                document_hash="hash-epu-dean-2025-sha256",
+            )
+        }
+    )
+    res = verifier.verify_citation(citation, evidence=evidence)
+
+    assert res.is_valid is True
+    assert res.catalog_verified is True
+    # Crucial safety check: claim_grounding_status MUST NOT be VERIFIED
+    assert res.claim_grounding_status == VerificationStatus.PENDING
+    assert res.claim_grounding_status != VerificationStatus.VERIFIED
+

@@ -37,19 +37,27 @@ class CitationVerificationReason(str, Enum):
 
 
 class TrustedDocumentEntry(BaseModel):
-    """Authoritative document record in the official university catalog."""
+    """Authoritative document record in the official university catalog.
+
+    CRITICAL SECURITY REQUIREMENT:
+    All core authorization fields (document_id, title, source_tier, is_active)
+    MUST be explicitly supplied by the authoritative backend catalog.
+    No permissive defaults (like is_active=True or source_tier=official_epu)
+    are permitted that could allow incomplete or arbitrary dictionaries to be
+    treated as approved documents.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     document_id: str = Field(..., min_length=1, description="Canonical catalog document identifier.")
     title: str = Field(..., min_length=1, description="Authoritative document title.")
     source_tier: SourceTier = Field(
-        default=SourceTier.OFFICIAL_EPU,
-        description="Approved source tier for this catalog document.",
+        ...,
+        description="Explicitly approved source tier for this catalog document.",
     )
     is_active: bool = Field(
-        default=True,
-        description="Whether this document version is active and approved for citation.",
+        ...,
+        description="Explicit approval/active status. Missing or False status fails closed.",
     )
     document_hash: str | None = Field(
         default=None,
@@ -108,9 +116,15 @@ class BatchCitationVerificationReport(BaseModel):
 class ContractCitationVerifier:
     """Pure, deterministic contract-level citation verifier.
 
-    This verifier executes structural, referential, and catalog authorization checks.
-    It FAILS CLOSED when the trusted catalog is absent or does not approve the document.
-    It does NOT evaluate semantic claim alignment (which is Phase 6 work).
+    SECURITY & TRUST BOUNDARY:
+    1. The trusted document catalog must be loaded exclusively by the trusted backend
+       from authoritative storage (e.g., vetted database, verified file registry, or
+       server configuration).
+    2. Neither the user, the client frontend, nor autonomous LLM generation may supply,
+       alter, or inject the trusted catalog.
+    3. If the backend does not provide an authoritative catalog, this verifier FAILS CLOSED.
+    4. Passing contract verification does NOT constitute semantic claim grounding;
+       claim_grounding_status remains strictly PENDING until evaluated in Phase 6.
     """
 
     def __init__(
@@ -307,18 +321,50 @@ class ContractCitationVerifier:
         raw_entry = self._trusted_catalog[citation.document_id]
         if isinstance(raw_entry, TrustedDocumentEntry):
             catalog_entry = raw_entry
+            if catalog_entry.document_id != citation.document_id:
+                return CitationVerificationResult(
+                    citation_id=citation.citation_id,
+                    is_valid=False,
+                    reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                    message=f"Catalog entry document_id '{catalog_entry.document_id}' does not match catalog lookup key '{citation.document_id}'",
+                    structural_validity=True,
+                    evidence_record_matched=True,
+                    catalog_verified=False,
+                    claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+                )
         elif isinstance(raw_entry, dict):
+            # Check key mismatch if document_id is specified in dict
+            if "document_id" in raw_entry and raw_entry["document_id"] != citation.document_id:
+                return CitationVerificationResult(
+                    citation_id=citation.citation_id,
+                    is_valid=False,
+                    reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                    message=f"Catalog key '{citation.document_id}' mismatches entry document_id '{raw_entry['document_id']}'",
+                    structural_validity=True,
+                    evidence_record_matched=True,
+                    catalog_verified=False,
+                    claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+                )
             try:
-                entry_data = dict(raw_entry)
-                entry_data.setdefault("document_id", citation.document_id)
-                entry_data.setdefault("title", citation.title)
-                catalog_entry = TrustedDocumentEntry(**entry_data)
+                # NEVER auto-populate or default fields from citation metadata!
+                catalog_entry = TrustedDocumentEntry(**raw_entry)
             except (ValidationError, TypeError, ValueError) as e:
                 return CitationVerificationResult(
                     citation_id=citation.citation_id,
                     is_valid=False,
                     reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
-                    message=f"Catalog record for '{citation.document_id}' is malformed: {e}",
+                    message=f"Catalog record for '{citation.document_id}' is incomplete or invalid: {e}",
+                    structural_validity=True,
+                    evidence_record_matched=True,
+                    catalog_verified=False,
+                    claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+                )
+            if catalog_entry.document_id != citation.document_id:
+                return CitationVerificationResult(
+                    citation_id=citation.citation_id,
+                    is_valid=False,
+                    reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                    message=f"Catalog entry document_id '{catalog_entry.document_id}' does not match citation document_id '{citation.document_id}'",
                     structural_validity=True,
                     evidence_record_matched=True,
                     catalog_verified=False,
@@ -360,21 +406,30 @@ class ContractCitationVerifier:
                 claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
             )
 
-        if (
-            catalog_entry.document_hash
-            and evidence.document_hash
-            and catalog_entry.document_hash != evidence.document_hash
-        ):
-            return CitationVerificationResult(
-                citation_id=citation.citation_id,
-                is_valid=False,
-                reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
-                message="Evidence document hash does not match approved catalog hash",
-                structural_validity=True,
-                evidence_record_matched=True,
-                catalog_verified=False,
-                claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
-            )
+        # Reject missing evidence hash when hash matching is required by trusted catalog
+        if catalog_entry.document_hash is not None:
+            if not evidence.document_hash:
+                return CitationVerificationResult(
+                    citation_id=citation.citation_id,
+                    is_valid=False,
+                    reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                    message="Trusted catalog requires cryptographic hash matching, but evidence document_hash is missing",
+                    structural_validity=True,
+                    evidence_record_matched=True,
+                    catalog_verified=False,
+                    claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+                )
+            if catalog_entry.document_hash != evidence.document_hash:
+                return CitationVerificationResult(
+                    citation_id=citation.citation_id,
+                    is_valid=False,
+                    reason_code=CitationVerificationReason.CATALOG_METADATA_MISMATCH,
+                    message=f"Evidence document hash '{evidence.document_hash}' does not match approved catalog hash '{catalog_entry.document_hash}'",
+                    structural_validity=True,
+                    evidence_record_matched=True,
+                    catalog_verified=False,
+                    claim_grounding_status=VerificationStatus.NOT_EVALUABLE,
+                )
 
         if (
             catalog_entry.allowed_major_codes
