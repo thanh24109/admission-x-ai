@@ -14,12 +14,13 @@ Status: **proposed for review**, not production-ready. Branch: `docs/phase-1-ai-
 2. `prompt-architecture.md`
 3. `rulebase-v1.yaml` and `decision-matrix.md`
 4. `response-contract.md` and `citation-contract.md`
-5. `ai-orchestration-design.md`
-6. `evaluation-plan.md` and `evals/datasets/golden_admission_v1.jsonl`
-7. `implementation-mapping.md`
+5. `agent-architecture.md`, `tool-contracts.md`, `agent-state-execution-policy.md`
+6. `ai-orchestration-design.md` and `agentic-rag-roadmap.md`
+7. `evaluation-plan.md` and `evals/datasets/golden_admission_v1.jsonl`
+8. `implementation-mapping.md`
 
 ## Explicitly out of scope
-No prompt runtime replacement, RAG retrieval, parsing, embeddings, database migrations, API changes, frontend changes, or automatic handover. This is a **design and evaluation specification**.
+No operational LangGraph agent or tool adapters, prompt runtime replacement, RAG retrieval, parsing, embeddings, database migrations, API changes, frontend changes, or automatic handover. This is a **design and evaluation specification**.
 
 ## Review gates
 Approve source-tier semantics, routing precedence, response contract migration, citation verification rules, handover consent, and evaluation gold-label verification before Phase 2. Existing code is a scaffold and may not implement these policies yet.

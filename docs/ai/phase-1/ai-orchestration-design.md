@@ -26,5 +26,10 @@
 - Failed output validation => safe fallback; do not silently send ungrounded draft.
 - Handover offer => no automatic ticket.
 
+## Agent ownership and tool contracts
+The graph is operated by a **single Admission Orchestrator Agent** with allowlisted read-only tools. Program Lookup and Curriculum RAG are tools, not autonomous agents. General Knowledge is a bounded explanation path, never a substitute for EPU evidence. Handover is a consent-gated backend action, not an automatic LLM tool call. See `agent-architecture.md` and `tool-contracts.md`.
+
+Execution limits, retry/timeout rules, termination reasons, redacted traces and consent boundaries are defined in `agent-state-execution-policy.md`.
+
 ## Interfaces and later phases
-Phase 2: parser must retain source URL, document hash, program code, page range and section metadata. Phase 3–4: persist evidence/provenance. Phase 5: implement retriever and major resolver. Phase 6: LLM and validators. Phase 7–8: versioned API/UI migration. Preserve testability independent of FastAPI and keep ingestion separate from crawler.
+Phase 2: parser must retain source URL, document hash, program code, page range and section metadata. Phase 3–4: persist evidence/provenance. Phase 5: implement retriever and major resolver. Phase 6: LLM and validators. Phase 7: compiled LangGraph orchestration. Phase 8: versioned FastAPI API and handover integration. Phase 9: frontend integration. Phase 10: evaluation/deployment. Preserve testability independent of FastAPI and keep ingestion separate from crawler.

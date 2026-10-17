@@ -17,6 +17,17 @@
 | `evals/datasets/golden_admission.jsonl` | Only 2 behavior cases | 6–9 |
 | `data/crawled/metadata/programs.jsonl` and 38 PDFs | Candidate dataset, not independently parsed/verified | 2 |
 
+## Agent implementation mapping
+- `apps/api/app/ai/agents/admission/agent.py`: future single orchestrator façade; no production agent currently.
+- `apps/api/app/ai/agents/application/agent.py`, `engagement/agent.py`, `profile/agent.py`: placeholders, not mandatory separate agents in V1.
+- `apps/api/app/ai/graph/state.py`: extend with typed state, budgets, trace and source modes in Phase 7.
+- `apps/api/app/ai/graph/builder.py`: replace sequential runner with conditional compiled LangGraph in Phase 7.
+- `apps/api/app/ai/rag/retrieval/hybrid_retriever.py`: implement Curriculum RAG Tool in Phase 5.
+- `apps/api/app/ai/rag/citations/validator.py`: mandatory citation-to-evidence validation in Phase 6.
+- `apps/api/app/api/routes/handovers.py`: consent-gated ticket creation in Phase 8; do not expose to autonomous LLM calls.
+- Agent/tool/state contracts: `agent-architecture.md`, `tool-contracts.md`, `agent-state-execution-policy.md`.
+- Roadmap: `agentic-rag-roadmap.md` (Phase 7 Agent, Phase 8 BE, Phase 9 FE, Phase 10 evaluation).
+
 ## Phase 1 outputs
 All new files under `docs/ai/phase-1/` plus a separate proposed 80-scenario dataset. No runtime code changes, no migrations, no PDF modifications.
 
